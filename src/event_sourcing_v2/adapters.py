@@ -13,11 +13,10 @@ from .models import Event
 
 
 class SQLiteHandle:
-    def __init__(self, conn: aiosqlite.Connection, stream_id: str, events: List[Event]):
+    def __init__(self, conn: aiosqlite.Connection, stream_id: str, initial_version: int):
         self.conn = conn
         self.stream_id = stream_id
-        self.events = events
-        self.version = len(events)
+        self.version = initial_version
 
     async def sync(self, new_events: List[Event]):
         """Persist new events to the SQLite database in a transaction."""
@@ -63,6 +62,24 @@ class SQLiteHandle:
                 existing_ids.add(row[0])
         return existing_ids
 
+    async def get_events(self) -> AsyncIterable[Event]:
+        """An async generator to stream events from the database for a given stream_id."""
+        async with self.conn.execute(
+            "SELECT event_type, timestamp, metadata, data FROM events WHERE stream_id = ? ORDER BY id",
+            (self.stream_id,),
+        ) as cursor:
+            async for row in cursor:
+                event_type, timestamp_str, metadata_json, data_blob = row
+                try:
+                    yield Event(
+                        type=event_type,
+                        timestamp=datetime.fromisoformat(timestamp_str),
+                        metadata=json.loads(metadata_json),
+                        data=data_blob,
+                    )
+                except (json.JSONDecodeError, pydantic_core.ValidationError, KeyError, ValueError) as e:
+                    logging.warning(f"Skipping invalid event row during replay for stream {self.stream_id}: {e}")
+
     async def close(self):
         # The connection is now shared and managed by the factory, so the handle should not close it.
         pass
@@ -85,25 +102,15 @@ async def sqlite_open_adapter(conn: aiosqlite.Connection, db_path: str, stream_i
         )
     """)
 
-    events = []
-    # Query for the specific stream_id
+    # Get the initial version count for the stream.
     async with conn.execute(
-        "SELECT id, event_type, timestamp, metadata, data FROM events WHERE stream_id = ? ORDER BY id",
+        "SELECT COUNT(id) FROM events WHERE stream_id = ?",
         (stream_id,),
     ) as cursor:
-        async for row in cursor:
-            _id, event_type, timestamp_str, metadata_json, data_blob = row
-            try:
-                events.append(Event(
-                    type=event_type,
-                    timestamp=datetime.fromisoformat(timestamp_str),
-                    metadata=json.loads(metadata_json),
-                    data=data_blob,
-                ))
-            except (json.JSONDecodeError, pydantic_core.ValidationError, KeyError, ValueError) as e:
-                logging.warning(f"Skipping invalid row in {db_path} for stream {stream_id} (id={_id}): {e}")
+        row = await cursor.fetchone()
+        initial_version = row[0] if row else 0
 
-    handle = SQLiteHandle(conn, stream_id, events)
+    handle = SQLiteHandle(conn, stream_id, initial_version)
     try:
         yield handle
     finally:

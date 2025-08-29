@@ -42,6 +42,12 @@ class Notifier:
                 data BLOB NOT NULL
             )
         """)
+        # Create an index on the idempotency key. This is crucial for performance
+        # of the `find_existing_ids` query on very large tables.
+        await self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_event_idempotency
+            ON events (stream_id, json_extract(metadata, '$.id'))
+        """)
         await self._conn.commit()
         # Get the last known event ID to start polling from.
         async with self._conn.execute("SELECT MAX(id) FROM events") as cursor:

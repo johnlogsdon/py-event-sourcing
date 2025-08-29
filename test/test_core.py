@@ -186,3 +186,21 @@ async def test_default_stream_is_in_memory_sqlite(fresh_config, fresh_db):
     await factories.cleanup_shared_resources()
     async with open_stream(config, "test") as stream:
         assert stream.handle.version == 0
+
+@pytest.mark.asyncio
+async def test_optimistic_concurrency_control(fresh_config, fresh_db):
+    """Tests that append fails if the expected_version does not match."""
+    # Session 1: open a stream and get its version
+    async with open_stream(fresh_config, "concurrency_test") as stream1:
+        version1 = await stream1.append([Event(type="A", data=b"1", timestamp=datetime.now(), metadata={})])
+        assert version1 == 1
+
+        # Session 2: open the same stream
+        async with open_stream(fresh_config, "concurrency_test") as stream2:
+            assert stream2.version == 1
+            # Session 1 appends again, advancing the version
+            await stream1.append([Event(type="B", data=b"2", timestamp=datetime.now(), metadata={})])
+
+            # Session 2 tries to append with a stale version, which should fail
+            with pytest.raises(ValueError, match="Concurrency conflict"):
+                await stream2.append([Event(type="C", data=b"3", timestamp=datetime.now(), metadata={})], expected_version=1)

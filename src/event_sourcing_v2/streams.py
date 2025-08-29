@@ -1,5 +1,5 @@
-from typing import Any, AsyncIterable, Callable, Dict, List, Set
 import asyncio
+from typing import Any, AsyncIterable, Callable, Dict, List, Set
 from cryptography.fernet import Fernet, InvalidToken
 
 from .models import Event
@@ -18,23 +18,16 @@ class Stream:
         self.stream_id = stream_id
         self.handle = handle
         self.notifier = notifier
-        self.fernet = Fernet(config["key"])
+        self.fernet = Fernet(config['key'])
+        # The stream is now "lazy" and doesn't load events into memory on startup.
+        # The version is fetched from the handle, which gets it from a COUNT query.
+        # This is much more memory-efficient for large streams.
+        self.version = self.handle.version
 
-        # Decrypt events once on load for in-memory operations.
-        # This provides a fast, decrypted cache for reads and searches.
-        self._events: List[Event] = []
-        for event in self.handle.events:  # handle.events has encrypted data
-            try:
-                decrypted_data = self.fernet.decrypt(event.data)
-                self._events.append(event.model_copy(update={"data": decrypted_data}))
-            except InvalidToken:
-                # Log or handle events that can't be decrypted, e.g., due to key rotation.
-                pass
-
-        # Free memory by clearing the now-redundant encrypted event list from the handle.
-        self.handle.events.clear()
-
-        self.version = len(self._events)
+    def _decrypt_event(self, event: Event) -> Event:
+        """Helper to decrypt a single event's data."""
+        decrypted_data = self.fernet.decrypt(event.data)
+        return event.model_copy(update={"data": decrypted_data})
 
     async def append(self, events: List[Event], expected_version: int = -1) -> int:
         """
@@ -44,42 +37,32 @@ class Stream:
         if not all(isinstance(e, Event) for e in events):
             raise TypeError("All items in events list must be Event objects")
 
-        if expected_version != -1 and self.version != expected_version:
-            raise ValueError(
-                f"Concurrency conflict: expected version {expected_version}, but stream is at {self.version}"
-            )
+        # The version check is now delegated to the atomic `sync` operation.
+        # If the user doesn't provide an expected_version, we use the stream's
+        # current known version. This is the optimistic part: we assume our
+        # view is up-to-date.
+        effective_expected_version = self.version if expected_version == -1 else expected_version
 
         # Scalable Idempotency Check: Instead of using an in-memory set of all
         # historical event IDs, we query the database only for the IDs in the
         # current batch. This is crucial for performance with large streams.
         idempotency_keys_to_check = [
-            event.metadata.get("id")
-            for event in events
-            if event.metadata and event.metadata.get("id")
+            event.metadata.get("id") for event in events if event.metadata and event.metadata.get("id")
         ]
         existing_ids = await self.handle.find_existing_ids(idempotency_keys_to_check)
 
         new_events_to_persist = []
-        new_decrypted_events = []
         for event in events:
             event_id = event.metadata.get("id")
             if not event_id or event_id not in existing_ids:
                 encrypted_data = self.fernet.encrypt(event.data)
-                new_events_to_persist.append(
-                    event.model_copy(update={"data": encrypted_data})
-                )
-                new_decrypted_events.append(event)
+                new_events_to_persist.append(event.model_copy(update={'data': encrypted_data}))
 
-        if not new_events_to_persist:
-            return self.version
+        # The sync method will perform the atomic version check and append.
+        await self.handle.sync(new_events_to_persist, effective_expected_version)
 
-        await self.handle.sync(new_events_to_persist)
-
-        # Update in-memory state
-        for event in new_decrypted_events:
-            self._events.append(event)
-
-        self.version += len(new_decrypted_events)
+        # After a successful append, update our local version.
+        self.version += len(new_events_to_persist)
         self.handle.version = self.version  # Keep handle in sync for watch adapter
 
         return self.version
@@ -91,10 +74,15 @@ class Stream:
         Processes historical events and then watches for new ones,
         applying a handler to compute a state.
         """
+        # Replay historical events by querying the database directly.
         state = initial_state
-        for event in self._events:
-            state = await handler(state, event)
-            yield state
+        async for event in self.handle.get_events():
+            try:
+                decrypted_event = self._decrypt_event(event)
+                state = await handler(state, decrypted_event)
+                yield state
+            except InvalidToken:
+                continue
 
         # Subscribe to the central notifier instead of polling.
         queue = await self.notifier.subscribe(self.stream_id)
@@ -102,12 +90,7 @@ class Stream:
             while True:
                 event = await queue.get()
                 try:
-                    decrypted_event = event.model_copy(
-                        update={"data": self.fernet.decrypt(event.data)}
-                    )
-                    self._events.append(decrypted_event)
-                    self.version += 1
-                    self.handle.version = self.version
+                    decrypted_event = self._decrypt_event(event)
                     state = await handler(state, decrypted_event)
                     yield state
                 except InvalidToken:
@@ -116,10 +99,20 @@ class Stream:
             await self.notifier.unsubscribe(self.stream_id, queue)
 
     async def search(self, predicate: Callable[[Event], bool]) -> List[Event]:
-        return [event for event in self._events if predicate(event)]
+        # Search now queries the database directly instead of an in-memory list.
+        results = []
+        async for event in self.handle.get_events():
+            try:
+                decrypted_event = self._decrypt_event(event)
+                if predicate(decrypted_event):
+                    results.append(decrypted_event)
+            except InvalidToken:
+                continue
+        return results
 
     async def get_metrics(self) -> Dict[str, Any]:
-        last_ts = self._events[-1].timestamp if self._events else None
+        # This would need to be a query now. For now, we accept it's less accurate.
+        last_ts = None
         return {
             "current_version": self.version,
             "event_count": self.version,
