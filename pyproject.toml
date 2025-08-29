@@ -1,0 +1,18 @@
+[project]
+name = "event_sourcing_v2"
+version = "0.1.0"
+description = "v2 implementation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography",
+    "pydantic>=2.11.7",
+    "aiosqlite",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["test", "tests"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
