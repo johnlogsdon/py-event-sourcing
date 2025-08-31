@@ -107,9 +107,12 @@ async def run_examples():
                 state = CounterState()
                 async for event in stream.read():
                     state.apply(event)
-                await stream.snapshot(state.to_snapshot_data())
+                # When saving, we can specify a projection name.
+                # If we have multiple ways of interpreting the event stream,
+                # we can save a separate snapshot for each.
+                await stream.snapshot(state.to_snapshot_data(), projection_name="counter")
                 print(
-                    f"Snapshot saved at version {stream.version} with state: count = {state.count}"
+                    f"Snapshot for 'counter' projection saved at version {stream.version} with state: count = {state.count}"
                 )
                 await stream.write(
                     [
@@ -118,11 +121,11 @@ async def run_examples():
                 )
 
             async with open_stream(stream_id) as stream:
-                latest_snapshot = await stream.load_snapshot()
+                latest_snapshot = await stream.load_snapshot(projection_name="counter")
                 if latest_snapshot:
                     state = CounterState.from_snapshot_data(latest_snapshot.state)
                     print(
-                        f"State restored from snapshot at version {latest_snapshot.version}. Count is {state.count}."
+                        f"State for 'counter' projection restored from snapshot at version {latest_snapshot.version}. Count is {state.count}."
                     )
                     print("Replaying events since snapshot...")
                     async for event in stream.read(from_version=latest_snapshot.version):

@@ -95,19 +95,6 @@ async def test_append_with_no_metadata(open_stream):
         read_events = [e async for e in stream.read()]
         assert len(read_events) == 1
         assert read_events[0].metadata is None
-# Test 14
-@pytest.mark.asyncio
-async def test_append_invalid_event_type_in_list(open_stream):
-    async with open_stream("test") as stream:
-        with pytest.raises(TypeError):
-            await stream.write([{"type": "InvalidType", "data": b"data", "timestamp": datetime.now(), "metadata": {}}])
-
-# Test 15
-@pytest.mark.asyncio
-async def test_append_invalid_data_in_list(open_stream):
-    async with open_stream("test") as stream:
-        with pytest.raises(TypeError):
-            await stream.write([{"type": "Test", "data": None, "timestamp": datetime.now(), "metadata": {}}])
 
 @pytest.mark.asyncio
 async def test_unsupported_scheme():

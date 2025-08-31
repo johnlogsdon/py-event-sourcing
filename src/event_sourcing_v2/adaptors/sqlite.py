@@ -46,11 +46,11 @@ class SQLiteHandle(StorageHandle):
 
             # 1. Get current version inside the transaction
             cursor = await self.conn.execute(
-                "SELECT COUNT(id) FROM events WHERE stream_id = ?", (self.stream_id,)
+                "SELECT MAX(version) FROM events WHERE stream_id = ?", (self.stream_id,)
             )
             row = await cursor.fetchone()
             await cursor.close()
-            current_version = row[0] if row else 0
+            current_version = row[0] if row and row[0] is not None else 0
 
             # 2. Check for concurrency conflict
             if expected_version != -1 and current_version != expected_version:
@@ -126,26 +126,28 @@ class SQLiteHandle(StorageHandle):
             return None
 
     async def save_snapshot(self, snapshot: Snapshot):
-        """Saves a snapshot to the database, overwriting any existing snapshot for the same stream_id."""
+        """Saves a snapshot to the database, overwriting any existing snapshot for the same stream_id and projection_name."""
         await self.conn.execute(
-            "INSERT OR REPLACE INTO snapshots (stream_id, version, state, timestamp) VALUES (?, ?, ?, ?)",
-            (snapshot.stream_id, snapshot.version, snapshot.state, snapshot.timestamp.isoformat()),
+            "INSERT OR REPLACE INTO snapshots (stream_id, projection_name, version, state, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (snapshot.stream_id, snapshot.projection_name, snapshot.version, snapshot.state, snapshot.timestamp.isoformat()),
         )
         await self.conn.commit()
 
-    async def load_latest_snapshot(self, stream_id: str) -> Snapshot | None:
-        """Loads the latest snapshot for a given stream_id, or None if no snapshot exists."""
+    async def load_latest_snapshot(self, stream_id: str, projection_name: str = "default") -> Snapshot | None:
+        """Loads the latest snapshot for a given stream_id and projection_name, or None if no snapshot exists."""
         async with self.conn.execute(
-            "SELECT stream_id, version, state, timestamp FROM snapshots WHERE stream_id = ? ORDER BY version DESC LIMIT 1",
-            (stream_id,),
+            "SELECT stream_id, projection_name, version, state, timestamp FROM snapshots WHERE stream_id = ? AND projection_name = ? ORDER BY version DESC LIMIT 1",
+            (stream_id, projection_name),
         ) as cursor:
             row = await cursor.fetchone()
             if row:
+                stream_id, proj_name, version, state, timestamp_str = row
                 return Snapshot(
-                    stream_id=row[0],
-                    version=row[1],
-                    state=row[2],
-                    timestamp=datetime.fromisoformat(row[3]),
+                    stream_id=stream_id,
+                    projection_name=proj_name,
+                    version=version,
+                    state=state,
+                    timestamp=datetime.fromisoformat(timestamp_str),
                 )
             return None
 
@@ -192,6 +194,13 @@ class SQLitePollingNotifier:
             )
         """
         )
+        # Create an index on stream_id and version for fast lookups and ordering.
+        # This is critical for performance on `read()` and `write()` operations.
+        await self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_event_stream_version ON events (stream_id, version)
+            """
+        )
         # Create an index on the idempotency key. This is crucial for performance
         # of the `find_existing_ids` query on very large tables.
         # The WHERE clause creates a partial index, only for rows where the key is not null.
@@ -205,10 +214,12 @@ class SQLitePollingNotifier:
         await self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS snapshots (
-                stream_id TEXT PRIMARY KEY,
+                stream_id TEXT NOT NULL,
+                projection_name TEXT NOT NULL,
                 version INTEGER NOT NULL,
                 state BLOB NOT NULL,
-                timestamp TEXT NOT NULL
+                timestamp TEXT NOT NULL,
+                PRIMARY KEY (stream_id, projection_name)
             )
         """
         )
@@ -296,11 +307,11 @@ async def sqlite_open_adapter(conn: aiosqlite.Connection, db_path: str, stream_i
     # Get the initial version count for the stream. This is done here to ensure
     # the handle starts with the correct version number for this specific stream.
     async with conn.execute(
-        "SELECT COUNT(id) FROM events WHERE stream_id = ?",
+        "SELECT MAX(version) FROM events WHERE stream_id = ?",
         (stream_id,),
     ) as cursor:
         row = await cursor.fetchone()
-        initial_version = row[0] if row else 0
+        initial_version = row[0] if row and row[0] is not None else 0
 
     handle = SQLiteHandle(conn, stream_id, initial_version)
     try:

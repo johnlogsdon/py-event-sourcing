@@ -17,6 +17,9 @@ class Event(BaseModel):
 
 class Snapshot(BaseModel):
     stream_id: str
+    # The name of the projection this snapshot is for.
+    # Allows a single event stream to have snapshots for multiple read models.
+    projection_name: str = "default"
     version: int
     state: bytes # Serialized state
     timestamp: datetime

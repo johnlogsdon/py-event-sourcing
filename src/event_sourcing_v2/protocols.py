@@ -21,24 +21,85 @@ class StorageHandle(Protocol):
     version: int
 
     async def sync(self, new_events: List[Event], expected_version: int):
+        """
+        Atomically persists a list of new events.
+
+        This method should ensure that the write is atomic and respects the
+        optimistic concurrency control via `expected_version`.
+
+        Args:
+            new_events: A list of `Event` objects to persist.
+            expected_version: The version the stream is expected to be at. The
+                write should fail if the actual version does not match.
+
+        Raises:
+            ValueError: If the `expected_version` does not match the current
+                stream version in the storage.
+        """
         ...
 
     async def find_existing_ids(self, event_ids: List[str]) -> Set[str]:
+        """
+        Finds which of the given event IDs already exist in the storage.
+
+        This is used to ensure idempotency of writes.
+
+        Args:
+            event_ids: A list of event IDs to check.
+
+        Returns:
+            A set of event IDs that are already present in the storage.
+        """
         ...
 
     async def get_events(self, start_version: int = 0) -> AsyncIterable[Event]:
+        """
+        Retrieves events from the storage starting from a given version.
+
+        Args:
+            start_version: The version number to start retrieving events from.
+                Defaults to 0 to retrieve all events.
+
+        Yields:
+            `Event` objects in order.
+        """
         ...
 
     async def get_last_timestamp(self) -> datetime | None:
+        """
+        Retrieves the timestamp of the most recent event in the stream.
+
+        Returns:
+            The timestamp of the last event, or `None` if the stream is empty.
+        """
         ...
 
     async def save_snapshot(self, snapshot: Snapshot):
+        """
+        Saves a snapshot of a stream's state.
+
+        Args:
+            snapshot: The `Snapshot` object to save.
+        """
         ...
 
-    async def load_latest_snapshot(self, stream_id: str) -> Snapshot | None:
+    async def load_latest_snapshot(self, stream_id: str, projection_name: str = "default") -> Snapshot | None:
+        """
+        Loads the most recent snapshot for a given stream.
+
+        Args:
+            stream_id: The ID of the stream for which to load the snapshot.
+            projection_name: The name of the projection to load the snapshot for.
+
+        Returns:
+            The latest `Snapshot` object, or `None` if no snapshot exists.
+        """
         ...
 
     async def close(self):
+        """
+        Closes the storage handle and releases any underlying resources.
+        """
         ...
 
 class Notifier(Protocol):
@@ -47,12 +108,36 @@ class Notifier(Protocol):
     This allows for different notification strategies (e.g., polling, pub/sub).
     """
     async def start(self):
+        """
+        Starts the notifier, e.g., by beginning a polling loop.
+        """
         ...
     async def stop(self):
+        """
+        Stops the notifier and cleans up its resources.
+        """
         ...
-    async def subscribe(self, stream_id: str) -> asyncio.Queue:
+
+    async def subscribe(self, stream_id: str) -> asyncio.Queue[Event]:
+        """
+        Subscribes to a stream to receive notifications of new events.
+
+        Args:
+            stream_id: The ID of the stream to watch.
+
+        Returns:
+            An `asyncio.Queue` on which new `Event` objects will be placed.
+        """
         ...
-    async def unsubscribe(self, stream_id: str, queue: "asyncio.Queue"):
+
+    async def unsubscribe(self, stream_id: str, queue: asyncio.Queue[Event]):
+        """
+        Unsubscribes a queue from a stream's notifications.
+
+        Args:
+            stream_id: The ID of the stream to unsubscribe from.
+            queue: The queue that was previously returned by `subscribe`.
+        """
         ...
 
 class Stream(Protocol):
@@ -65,19 +150,90 @@ class Stream(Protocol):
     stream_id: str
 
     async def write(self, events: List[Event], expected_version: int = -1) -> int:
+        """
+        Appends a list of events to the stream atomically.
+
+        This operation is idempotent based on the `id` field of each event. If an
+        event with the same `id` has already been persisted, it is ignored.
+
+        Args:
+            events: A list of `Event` objects to append.
+            expected_version: If specified, the write will only succeed if the
+                current stream version matches this value. Use -1 (the default)
+                to bypass this check for unconditional writes.
+
+        Returns:
+            The new version number of the stream after the write.
+
+        Raises:
+            ValueError: If `expected_version` does not match the current stream version.
+            TypeError: If any object in the `events` list is not an `Event` instance.
+        """
         ...
 
-    async def snapshot(self, state: bytes):
+    async def snapshot(self, state: bytes, projection_name: str = "default"):
+        """
+        Saves a snapshot of the stream's state at the current version.
+
+        Snapshots are an optimization to speed up state reconstruction. Instead of
+        replaying all events from the beginning, an application can load the latest
+        snapshot and then replay only the events that occurred after that snapshot.
+
+        Args:
+            state: The serialized state of the aggregate to be saved.
+            projection_name: The name of the projection this snapshot is for.
+                This allows a single event stream to have snapshots for multiple
+                different read models.
+        """
         ...
 
-    async def load_snapshot(self) -> Snapshot | None:
+    async def load_snapshot(self, projection_name: str = "default") -> Snapshot | None:
+        """
+        Loads the latest snapshot for the stream.
+        Args:
+            projection_name: The name of the projection to load the snapshot for.
+
+        Returns:
+            A `Snapshot` object if one exists, otherwise `None`.
+        """
         ...
 
     async def read(self, from_version: int = 0) -> AsyncIterable[Event]:
+        """
+        Returns an async generator that yields historical events from the stream.
+
+        Args:
+            from_version: The version from which to start reading events (inclusive).
+                Defaults to 0, which reads from the beginning of the stream.
+
+        Yields:
+            `Event` objects from the stream in order.
+        """
         ...
 
     async def watch(self, from_version: int | None = None) -> AsyncIterable[Event]:
+        """
+        Returns an async generator that yields historical events and then live events.
+
+        This method first yields historical events from the given version and then
+        continues to yield new, live events as they are appended to the stream.
+
+        Args:
+            from_version: The version from which to start watching for events (inclusive).
+                Defaults to the current stream version (watches for new events only).
+                To replay all events from the beginning, pass `from_version=0`.
+
+        Yields:
+            `Event` objects from the stream in order.
+        """
         ...
 
     async def metrics(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary of key metrics for the stream.
+
+        Returns:
+            A dictionary containing metrics such as `current_version`, `event_count`,
+            and `last_timestamp`.
+        """
         ...

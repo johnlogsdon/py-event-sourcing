@@ -40,16 +40,17 @@ Here’s a quick example of writing to and reading from a stream.
 ```python
 import asyncio
 from datetime import datetime
-from event_sourcing_v2 import create_stream_factory, Event
+from event_sourcing_v2 import stream_factory, Event
 
 async def main():
     # Using an empty config defaults to a non-persistent, in-memory database.
     # For persistence, provide a file path: {"url": "sqlite:///my_events.db"}
     config = {}
-    open_stream, cleanup = create_stream_factory(config)
-    stream_id = "my_first_stream"
 
-    try:
+    # The stream_factory is an async context manager that handles resource setup and teardown.
+    async with stream_factory(config) as open_stream:
+        stream_id = "my_first_stream"
+
         # Write an event
         async with open_stream(stream_id) as stream:
             event = Event(type="UserRegistered", data=b'{"user": "Alice"}', timestamp=datetime.now())
@@ -61,8 +62,6 @@ async def main():
             all_events = [e async for e in stream.read()]
             print(f"Read {len(all_events)} event(s) from the stream.")
             print(f"  -> Event type: {all_events[0].type}, Data: {all_events[0].data.decode()}")
-    finally:
-        await cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main())
