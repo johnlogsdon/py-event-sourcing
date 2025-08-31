@@ -9,6 +9,7 @@ resource management explicit.
 """
 import asyncio
 from contextlib import asynccontextmanager
+import zlib
 import aiosqlite
 from typing import (
     Any,
@@ -58,17 +59,31 @@ class StreamImpl(Stream):
         return self.version
 
     async def snapshot(self, state: bytes, projection_name: str = "default"):
+        # Compress the state before saving to reduce storage and I/O.
+        compressed_state = zlib.compress(state)
         snapshot = Snapshot(
             stream_id=self.stream_id,
             projection_name=projection_name,
             version=self.version,
-            state=state,
+            state=compressed_state,
             timestamp=datetime.now(timezone.utc),
         )
         await self.handle.save_snapshot(snapshot)
 
     async def load_snapshot(self, projection_name: str = "default") -> Snapshot | None:
-        return await self.handle.load_latest_snapshot(self.stream_id, projection_name=projection_name)
+        snapshot = await self.handle.load_latest_snapshot(
+            self.stream_id, projection_name=projection_name
+        )
+        if snapshot:
+            try:
+                # Decompress the state. Return a new snapshot with the decompressed data.
+                decompressed_state = zlib.decompress(snapshot.state)
+                return snapshot.model_copy(update={"state": decompressed_state})
+            except zlib.error:
+                # For backward compatibility, if decompression fails,
+                # assume it's an old, uncompressed snapshot.
+                return snapshot
+        return None
 
     async def read(self, from_version: int = 0) -> AsyncIterable[Event]:
         async for event in self.handle.get_events(start_version=from_version):
