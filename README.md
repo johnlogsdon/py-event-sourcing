@@ -1,8 +1,24 @@
 # Event Sourcing V2
 
-This is a Python implementation of an event sourcing system (version 2), focusing on functional programming, async I/O, and dependency injection.
+<!--
+[PROMPT_SUGGESTION]The `write` method in `streams.py` seems to have a lot of logic. Can you refactor it for clarity?[/PROMPT_SUGGESTION]
+[PROMPT_SUGGESTION]Can you add docstrings to the public methods in `streams.py` to explain what they do, their parameters, and what they return?[/PROMPT_SUGGESTION]
+-->
+A minimal, elegant, and functional event sourcing library for Python, built with `asyncio` and a file-based SQLite backend.
 
-## Setup
+This library provides the core components needed to build event-sourced systems, focusing on simplicity, a clean API, and efficiency. It treats event streams as the single source of truth (SSOT) and provides familiar async I/O operations (`write`, `read`, `watch`) to interact with them.
+
+## Key Features
+
+*   **Simple & Serverless**: Uses SQLite for a file-based, zero-dependency persistence layer. Defaults to a non-persistent, in-memory database if no file is specified.
+*   **Idempotent Writes**: Prevents duplicate events in distributed systems by using an optional `id` on each event.
+*   **Optimistic Concurrency Control**: Ensures data integrity by allowing writes only against a specific, expected stream version.
+*   **Efficient Watching**: A centralized notifier polls the database once to serve all watchers, avoiding the "thundering herd" problem and ensuring low-latency updates.
+*   **Snapshot Support**: Accelerate state reconstruction for long-lived streams by saving and loading state snapshots.
+*   **Fully Async API**: Built from the ground up with `asyncio` for high-performance, non-blocking I/O.
+*   **Extensible by Design**: Core logic is decoupled from the implementation via `Protocol`-based adapters, allowing for future extensions.
+
+## Installation
 
 This project uses `uv` for dependency management.
 
@@ -13,19 +29,56 @@ This project uses `uv` for dependency management.
     ```
 
 2.  **Install the package in editable mode with dev dependencies:**
-    This command installs the project's dependencies and testing tools. The `-e` flag makes your local source code available on the Python path, resolving `ModuleNotFoundError`.
     ```bash
     uv pip install -e ".[dev]"
     ```
 
-## Usage
+## Quick Start
 
-Run the main script: `uv run python main.py`
+Here’s a quick example of writing to and reading from a stream.
+
+```python
+import asyncio
+from datetime import datetime
+from event_sourcing_v2 import create_stream_factory, Event
+
+async def main():
+    # Using an empty config defaults to a non-persistent, in-memory database.
+    # For persistence, provide a file path: {"url": "sqlite:///my_events.db"}
+    config = {}
+    open_stream, cleanup = create_stream_factory(config)
+    stream_id = "my_first_stream"
+
+    try:
+        # Write an event
+        async with open_stream(stream_id) as stream:
+            event = Event(type="UserRegistered", data=b'{"user": "Alice"}', timestamp=datetime.now())
+            await stream.write([event])
+            print(f"Event written. Stream version is now {stream.version}.")
+
+        # Read the event back
+        async with open_stream(stream_id) as stream:
+            all_events = [e async for e in stream.read()]
+            print(f"Read {len(all_events)} event(s) from the stream.")
+            print(f"  -> Event type: {all_events[0].type}, Data: {all_events[0].data.decode()}")
+    finally:
+        await cleanup()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Full Examples
+
+For more detailed examples covering snapshots, watching for live events, and state reconstruction, please see the fully commented example file: `examples/basic_usage.py`.
 
 ## Testing
 
-Run the test suite: `uv run pytest`
+Run the test suite:
+```bash
+uv run pytest
+```
 
-## Design
+The test suite in `test/test_core.py` also serves as a comprehensive set of usage examples.
 
-See [docs/DESIGN.md](docs/DESIGN.md) for architecture details.
+## Contributing

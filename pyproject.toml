@@ -5,7 +5,6 @@ description = "v2 implementation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "cryptography",
     "pydantic>=2.11.7",
     "aiosqlite",
 ]
