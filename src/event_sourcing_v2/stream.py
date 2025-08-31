@@ -161,30 +161,30 @@ async def stream_factory(config: Dict):
 
         scheme = url.split('://', 1)[0] if '://' in url else ''
 
-        if scheme == 'sqlite':
-            parsed = urllib.parse.urlparse(url)
-            db_path = parsed.path or parsed.netloc
-            if not db_path or db_path == '/': # Handle sqlite:///
-                db_path = ':memory:'
-
-            polling_interval = config.get('polling_interval', 0.2) # Get from config, default to 0.2
-
-            async with connection_lock:
-                if db_path not in connections:
-                    connections[db_path] = await aiosqlite.connect(db_path)
-            connection = connections[db_path]
-
-            async with notifier_lock:
-                if db_path not in notifiers:
-                    # Pass the shared connection to the notifier
-                    notifiers[db_path] = SQLitePollingNotifier(connection, polling_interval=polling_interval)
-                    await notifiers[db_path].start()
-            notifier = notifiers[db_path]
-            
-            open_adapter = sqlite_open_adapter
-        else:
+        if not scheme == 'sqlite':
             raise ValueError(f"Unsupported scheme: {scheme}. Only 'sqlite' is supported.")
 
+        parsed = urllib.parse.urlparse(url)
+        db_path = parsed.path or parsed.netloc
+        if not db_path or db_path == '/': # Handle sqlite:///
+            db_path = ':memory:'
+
+        polling_interval = config.get('polling_interval', 0.2) # Get from config, default to 0.2
+
+        async with connection_lock:
+            if db_path not in connections:
+                connections[db_path] = await aiosqlite.connect(db_path)
+        connection = connections[db_path]
+
+        async with notifier_lock:
+            if db_path not in notifiers:
+                # Pass the shared connection to the notifier
+                notifiers[db_path] = SQLitePollingNotifier(connection, polling_interval=polling_interval)
+                await notifiers[db_path].start()
+        notifier = notifiers[db_path]
+        
+        open_adapter = sqlite_open_adapter
+        
         async with open_adapter(connection, db_path, stream_id) as handle:
             stream = StreamImpl(config, stream_id, handle, notifier)
             yield stream
