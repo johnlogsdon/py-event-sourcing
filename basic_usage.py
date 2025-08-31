@@ -65,14 +65,30 @@ async def run_examples():
                     print(f"  - Event version {event.version}: {event.type}")
                 assert len(all_events) == 3
 
-            print("\n--- Example 2: Reconstructing State from Events ---")
-            # Reconstruct the state of our counter by applying all events.
-            async with open_stream(stream_id) as stream:
-                state = CounterState()
-                async for event in stream.read():
+            print("\n--- Example 2: Reconstructing State from Events (Read Model & Projector) ---")
+
+            # --- Read Model Definition ---
+            # The `CounterState` class acts as our Read Model. It's a simplified
+            # representation of the current state derived from events, optimized for queries.
+            # In a real application, this might be stored in a separate database (e.g., PostgreSQL, Redis).
+
+            async def reconstruct_state_with_projector(stream_instance, initial_state=None):
+                """
+                This function acts as a simple Projector.
+                It reads events from the stream and applies them to a Read Model
+                to reconstruct its current state.
+                """
+                state = initial_state if initial_state is not None else CounterState()
+                async for event in stream_instance.read():
                     state.apply(event)
-                print(f"Reconstructed state: Counter is {state.count}.")
-                assert state.count == 1  # (2 increments, 1 decrement)
+                return state
+
+            # --- Projector in Action ---
+            async with open_stream(stream_id) as stream:
+                # Use our projector function to reconstruct the state
+                final_state = await reconstruct_state_with_projector(stream)
+                print(f"Reconstructed state: Counter is {final_state.count}.")
+                assert final_state.count == 1  # (2 increments, 1 decrement)
 
             print("\n--- Example 3: Watching for New Events ---")
             # The `watch` method replays historical events and then waits for new ones.
