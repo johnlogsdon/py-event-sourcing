@@ -448,7 +448,7 @@ async def sqlite_read_adapter(conn: aiosqlite.Connection, stream_id: str) -> Asy
 
 
 @asynccontextmanager
-async def sqlite_stream_factory(config: Dict):
+async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
     """
     A factory for creating and managing streams that are backed by a SQLite database.
     This function is a Higher-Order Function that, when used as an async context
