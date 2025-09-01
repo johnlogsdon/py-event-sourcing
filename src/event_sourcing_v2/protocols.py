@@ -205,9 +205,10 @@ class Stream(Protocol):
         Args:
             from_version: The version from which to start reading events (inclusive).
                 Defaults to 0, which reads from the beginning of the stream.
+                For the special '@all' stream, this refers to the global sequence ID.
 
         Yields:
-            `Event` objects from the stream in order.
+            `StoredEvent` objects from the stream in order.
         """
         ...
 
@@ -222,9 +223,10 @@ class Stream(Protocol):
             from_version: The version from which to start watching for events (inclusive).
                 Defaults to the current stream version (watches for new events only).
                 To replay all events from the beginning, pass `from_version=0`.
+                For the special '@all' stream, this refers to the global sequence ID.
 
         Yields:
-            `Event` objects from the stream in order.
+            `StoredEvent` objects from the stream in order.
         """
         ...
 

@@ -32,6 +32,9 @@ class StreamImpl(Stream):
         self.version = self.handle.version
 
     async def write(self, events: List[CandidateEvent], expected_version: int = -1) -> int:
+        if self.stream_id == "@all":
+            raise ValueError("Writing to the '@all' stream is not permitted.")
+            
         if not all(isinstance(e, CandidateEvent) for e in events):
             raise TypeError("All items in events list must be CandidateEvent objects")
 
@@ -80,19 +83,21 @@ class StreamImpl(Stream):
                 start_version=effective_from_version
             ):
                 yield event
-                last_yielded_version = event.version
+                last_yielded_version = event.sequence_id if self.stream_id == "@all" else event.version
 
             while not queue.empty():
                 event = queue.get_nowait()
-                if event.version > last_yielded_version:
+                current_event_version = event.sequence_id if self.stream_id == "@all" else event.version
+                if current_event_version > last_yielded_version:
                     yield event
-                    last_yielded_version = event.version
+                    last_yielded_version = current_event_version
 
             while True:
                 event = await queue.get()
-                if event.version > last_yielded_version:
+                current_event_version = event.sequence_id if self.stream_id == "@all" else event.version
+                if current_event_version > last_yielded_version:
                     yield event
-                    last_yielded_version = event.version
+                    last_yielded_version = current_event_version
         finally:
             await self.notifier.unsubscribe(self.stream_id, queue)
 

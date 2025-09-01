@@ -505,3 +505,80 @@ async def test_high_concurrency_scenario(db_path: str):
             assert len(watched_events) == total_events
             for i in range(total_events):
                 assert watched_events[i].version == i + 1
+
+
+@pytest.mark.asyncio
+async def test_write_to_all_stream_is_disallowed(open_stream):
+    """Tests that attempting to write to the '@all' stream raises an error."""
+    async with open_stream("@all") as stream:
+        with pytest.raises(ValueError, match="Writing to the '@all' stream is not permitted."):
+            await stream.write([CandidateEvent(type="test", data=b"")])
+
+
+@pytest.mark.asyncio
+async def test_read_from_all_stream(open_stream):
+    """Tests that reading from the '@all' stream returns events from all streams in global order."""
+    # Write to stream 1
+    async with open_stream("stream1") as s1:
+        await s1.write([CandidateEvent(type="s1-e1", data=b"1")])
+        await s1.write([CandidateEvent(type="s1-e2", data=b"2")])
+
+    # Write to stream 2
+    async with open_stream("stream2") as s2:
+        await s2.write([CandidateEvent(type="s2-e1", data=b"3")])
+
+    # Read from @all
+    async with open_stream("@all") as s_all:
+        all_events = [e async for e in s_all.read(from_version=0)]
+        assert len(all_events) == 3
+        assert all_events[0].sequence_id == 1
+        assert all_events[0].type == "s1-e1"
+        assert all_events[1].sequence_id == 2
+        assert all_events[1].type == "s1-e2"
+        assert all_events[2].sequence_id == 3
+        assert all_events[2].type == "s2-e1"
+
+        # Read from a specific sequence ID
+        events_after_seq1 = [e async for e in s_all.read(from_version=1)]
+        assert len(events_after_seq1) == 2
+        assert events_after_seq1[0].sequence_id == 2
+        assert events_after_seq1[1].sequence_id == 3
+
+
+@pytest.mark.asyncio
+async def test_watch_all_stream(open_stream):
+    """Tests that watching the '@all' stream receives events from all streams."""
+    events_seen = []
+
+    async def consume_stream():
+        async with open_stream("@all") as stream:
+            async for event in stream.watch(from_version=0):
+                events_seen.append(event)
+                if len(events_seen) == 3:
+                    break
+
+    # Start watcher
+    watch_task = asyncio.create_task(consume_stream())
+    await asyncio.sleep(0.5)
+
+    # Write to stream 1 (should be replayed)
+    async with open_stream("stream1") as s1:
+        await s1.write([CandidateEvent(type="s1-e1", data=b"1")])
+
+    # Write to stream 2 (should be a live event for the watcher)
+    async with open_stream("stream2") as s2:
+        await s2.write([CandidateEvent(type="s2-e1", data=b"2")])
+
+    # Write to stream 1 again (live)
+    async with open_stream("stream1") as s1:
+        await s1.write([CandidateEvent(type="s1-e2", data=b"3")])
+
+    await asyncio.wait_for(watch_task, timeout=5)
+
+    assert len(events_seen) == 3
+    assert events_seen[0].type == "s1-e1"
+    assert events_seen[0].sequence_id == 1
+    assert events_seen[1].type == "s2-e1"
+    assert events_seen[1].sequence_id == 2
+    assert events_seen[2].type == "s1-e2"
+    assert events_seen[2].sequence_id == 3

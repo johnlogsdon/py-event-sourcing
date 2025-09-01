@@ -116,6 +116,10 @@ class SQLiteHandle(StorageHandle):
 
     async def _async_init(self):
         """Asynchronously initializes the stream's version."""
+        if self.stream_id == "@all":
+            self.version = 0 # @all stream does not have a version
+            return
+            
         async with self.conn.execute(
             "SELECT MAX(version) FROM events WHERE stream_id = ?", (self.stream_id,)
         ) as cursor:
@@ -217,10 +221,14 @@ class SQLiteHandle(StorageHandle):
 
     async def get_events(self, start_version: int = 0) -> AsyncIterable[StoredEvent]:
         """An async generator to stream events from the database for a given stream_id, starting from a specific version."""
-        async with self.conn.execute(
-            "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events WHERE stream_id = ? AND version > ? ORDER BY version",
-            (self.stream_id, start_version,),
-        ) as cursor:
+        if self.stream_id == "@all":
+            query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events WHERE id > ? ORDER BY id"
+            params = (start_version,)
+        else:
+            query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events WHERE stream_id = ? AND version > ? ORDER BY version"
+            params = (self.stream_id, start_version,)
+
+        async with self.conn.execute(query, params) as cursor:
             async for row in cursor:
                 sequence_id, stream_id, idempotency_key, event_type, timestamp_str, metadata_json, data_blob, version, event_id = row
                 try:
@@ -400,6 +408,11 @@ class SQLiteNotifier(Notifier):
                                 for queue in self._watchers[stream_id]:
                                     await queue.put(event)
                             last_id_in_batch = _id # Update temporary variable
+                            
+                            # Also notify @all watchers
+                            if stream_id != "@all" and "@all" in self._watchers:
+                                for queue in self._watchers["@all"]:
+                                    await queue.put(event)
                         except Exception as e:
                             logging.warning(
                                 f"Notifier skipping malformed event row with id {_id}: {e}"
