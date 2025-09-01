@@ -81,9 +81,39 @@ uv run pytest
 
 The test suite in `test/test_core.py` also serves as a comprehensive set of usage examples.
 
+## Performance Benchmarks
+
+
 ## Further Reading
 
 *   **[Core Concepts (`concepts.md`)](./concepts.md)**: For a detailed explanation of the event sourcing principles and design choices behind this library.
 *   **[Performance Benchmarks (`benchmark.py`)](./benchmark.py)**: To see how the library performs under heavy load and to run the benchmarks yourself.
+
+    You can run the benchmark script via:
+    ```bash
+    uv run python benchmark.py
+    ```
+
+    **Example Output:**
+    ```text
+    --- Running benchmark with 1000000 events ---
+    Writing 1000000 events...
+    Finished writing 1000000 events in 10.28 seconds.
+    Write throughput: 97,273.29 events/sec.
+
+    --- Benchmark 1: Reconstructing state from all events ---
+    Reconstructed state (all events): Counter is 1000000.
+    Time to reconstruct from all events: 2.49 seconds.
+    Read throughput: 401,291.20 events/sec.
+
+    --- Benchmark 2: Reconstructing state using snapshot ---
+    Creating snapshot...
+    Snapshot created.
+    Writing 100 additional events...
+    Finished writing 100 additional events.
+    State restored from snapshot at version 1000000.
+    Reconstructed state (with snapshot): Counter is 1000100.
+    Time to reconstruct with snapshot: 0.00 seconds.
+    ```
 
 ## Contributing

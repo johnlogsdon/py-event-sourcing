@@ -84,7 +84,9 @@ async def run_benchmark():
                 await asyncio.gather(*tasks)
 
             write_time = time.time() - start_time
+            events_per_second = num_events / write_time if write_time > 0 else 0
             print(f"Finished writing {num_events} events in {write_time:.2f} seconds.")
+            print(f"Write throughput: {events_per_second:,.2f} events/sec.")
 
             async with open_stream(stream_id) as stream:
 
@@ -93,8 +95,10 @@ async def run_benchmark():
                 start_time = time.time()
                 final_state = await reconstruct_state_with_projector(stream)
                 reconstruct_all_time = time.time() - start_time
+                read_events_per_second = final_state.count / reconstruct_all_time if reconstruct_all_time > 0 else 0
                 print(f"Reconstructed state (all events): Counter is {final_state.count}.")
                 print(f"Time to reconstruct from all events: {reconstruct_all_time:.2f} seconds.")
+                print(f"Read throughput: {read_events_per_second:,.2f} events/sec.")
                 assert final_state.count == num_events
 
                 # --- Benchmark 2: Reconstruct state using snapshot ---
