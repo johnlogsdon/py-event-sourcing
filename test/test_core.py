@@ -355,3 +355,71 @@ async def test_performance_read_write_1000_events(open_stream):
         assert len(read_events) == num_events
         # Assert that it's reasonably fast, e.g., under 0.5 seconds.
         assert read_duration < 0.5
+
+
+@pytest.mark.asyncio
+async def test_high_concurrency_scenario(open_stream):
+    """
+    Tests a high-concurrency scenario with multiple readers, writers,
+    and a watcher operating on the same stream simultaneously.
+    """
+    stream_id = "high_concurrency_stream"
+    num_writers = 5
+    num_readers = 5
+    events_per_writer = 10
+    total_events = num_writers * events_per_writer
+
+    writer_lock = asyncio.Lock()
+    events_written = []
+    events_read_by_readers = [[] for _ in range(num_readers)]
+    events_watched = []
+
+    async def writer_task(writer_id):
+        for i in range(events_per_writer):
+            async with writer_lock:
+                async with open_stream(stream_id) as stream:
+                    event = Event(
+                        type="WriteEvent",
+                        data=f"data_{writer_id}_{i}".encode(),
+                        timestamp=datetime.now(timezone.utc),
+                    )
+                    await stream.write([event])
+                    events_written.append(event)
+
+    async def reader_task(reader_id):
+        for _ in range(5):  # Readers will read multiple times
+            async with open_stream(stream_id) as stream:
+                events = [e async for e in stream.read()]
+                events_read_by_readers[reader_id] = events
+            await asyncio.sleep(0.01)  # Small sleep to allow writes to occur
+
+    async def watcher_task():
+        async with open_stream(stream_id) as stream:
+            async for event in stream.watch():
+                events_watched.append(event)
+                if len(events_watched) == total_events:
+                    break
+
+    # Start all tasks concurrently
+    all_tasks = [writer_task(i) for i in range(num_writers)]
+    all_tasks.extend([reader_task(i) for i in range(num_readers)])
+    all_tasks.append(watcher_task())
+
+    await asyncio.gather(*all_tasks)
+
+    # --- Validation ---
+    # 1. Final version should be correct
+    async with open_stream(stream_id) as stream:
+        assert stream.version == total_events
+
+    # 2. All events should have been written
+    assert len(events_written) == total_events
+
+    # 3. All readers should have eventually read all events
+    for i in range(num_readers):
+        assert len(events_read_by_readers[i]) == total_events, f"Reader {i} failed"
+
+    # 4. Watcher should have received all events in order
+    assert len(events_watched) == total_events
+    for i in range(total_events):
+        assert events_watched[i].version == i + 1
