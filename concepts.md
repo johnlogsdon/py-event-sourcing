@@ -28,8 +28,24 @@ This library is designed to be a minimal, elegant, and functional event sourcing
 *   **Snapshot Support**: Accelerate state reconstruction for long-lived streams by saving and loading state snapshots.
 *   **Fully Async API**: Built from the ground up with `asyncio` for high-performance, non-blocking I/O.
 *   **Extensible by Design**: Core logic is decoupled from the implementation via `Protocol`-based adapters, allowing for future extensions.
+*   **Simple Factory Entry Point**: The primary public API is the `sqlite_stream_factory`, a Higher-Order Function that provides a simple async context manager for all database and stream resources, ensuring they are correctly initialized and shut down.
 
-## 3. Read Models and Projectors
+## 3. Technical Deep Dive: High-Performance SQLite Backend
+
+While this library is designed to be extensible, the built-in SQLite adapter is highly optimized for performance and concurrency. The `sqlite_stream_factory` is the recommended entry point and encapsulates the following best practices:
+
+*   **Write-Ahead Logging (WAL Mode)**: The database is configured in WAL mode (`PRAGMA journal_mode=WAL;`). This is a crucial setting that allows read operations to occur concurrently with write operations, significantly improving throughput in multi-threaded or `asyncio`-based applications.
+
+*   **Advanced Connection Management**: To prevent deadlocks and contention, the factory manages three separate connection resources:
+    1.  **A Single Write Connection**: All write operations are serialized through a single, dedicated database connection, ensuring consistency and preventing `database is locked` errors.
+    2.  **A Pool of Read Connections**: Read operations are distributed across a pool of read-only connections, allowing multiple concurrent readers without blocking the writer.
+    3.  **A Dedicated Notifier Connection**: The `Notifier` uses its own connection to poll for changes, isolating it from application reads and writes and ensuring low-latency event notifications.
+
+*   **Performance Tuning**: The connections are tuned for high performance in a server environment:
+    *   `PRAGMA synchronous = NORMAL`: In WAL mode, this setting provides a significant write performance boost with a very low risk of corruption, as it avoids waiting for the OS to confirm that data is physically written to the disk.
+    *   `PRAGMA cache_size`: The in-memory page cache is increased to provide more memory for caching frequently accessed data, reducing disk I/O for read operations.
+
+## 4. Read Models and Projectors
 
 While event sourcing stores the *history* of changes, most applications need to query the *current state* efficiently. This is where **Read Models** and **Projectors** come into play.
 
