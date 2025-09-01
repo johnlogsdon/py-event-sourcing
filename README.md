@@ -40,15 +40,15 @@ Here’s a quick example of writing to and reading from a stream.
 ```python
 import asyncio
 from datetime import datetime
-from event_sourcing_v2 import stream_factory, Event
+from event_sourcing_v2 import sqlite_stream_factory, Event
 
 async def main():
     # Using an empty config defaults to a non-persistent, in-memory database.
-    # For persistence, provide a file path: {"url": "sqlite:///my_events.db"}
+    # For persistence, provide a file path: {"db_path": "my_events.db"}
     config = {}
 
     # The stream_factory is an async context manager that handles resource setup and teardown.
-    async with stream_factory(config) as open_stream:
+    async with sqlite_stream_factory(config) as open_stream:
         stream_id = "my_first_stream"
 
         # Write an event

@@ -4,7 +4,7 @@ import tempfile
 import json
 from datetime import datetime
 
-from event_sourcing_v2 import stream_factory, Event
+from event_sourcing_v2 import sqlite_stream_factory, Event
 
 
 # This is a simple state model for our example.
@@ -39,10 +39,10 @@ async def run_examples():
     # Use a temporary directory for the database to keep the example self-contained.
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "example.db")
-        config = {"url": f"sqlite:///{db_path}"}
+        config = {"db_path": db_path}
 
         # The stream_factory is an async context manager that handles resource setup and teardown.
-        async with stream_factory(config) as open_stream:
+        async with sqlite_stream_factory(config) as open_stream:
             stream_id = "counter_stream_1"
             print("--- Example 1: Writing and Reading Events ---")
             # Open a stream. The `async with` block handles resource management.
