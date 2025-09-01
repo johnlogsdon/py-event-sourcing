@@ -46,12 +46,12 @@ class StreamImpl(Stream):
         self.version = new_version
         return self.version
 
-    async def snapshot(self, state: bytes, projection_name: str = "default"):
+    async def snapshot(self, state: bytes, version: int | None = None, projection_name: str = "default"):
         compressed_state = zlib.compress(state)
         snapshot = Snapshot(
             stream_id=self.stream_id,
             projection_name=projection_name,
-            version=self.version,
+            version=version if version is not None else self.version,
             state=compressed_state,
             timestamp=datetime.now(timezone.utc),
         )

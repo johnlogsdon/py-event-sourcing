@@ -171,7 +171,7 @@ class Stream(Protocol):
         """
         ...
 
-    async def snapshot(self, state: bytes, projection_name: str = "default"):
+    async def snapshot(self, state: bytes, version: int | None = None, projection_name: str = "default"):
         """
         Saves a snapshot of the stream's state at the current version.
 
@@ -181,6 +181,9 @@ class Stream(Protocol):
 
         Args:
             state: The serialized state of the aggregate to be saved.
+            version: The version at which the snapshot is taken. If not provided,
+                defaults to the current stream version. For the '@all' stream, this
+                should be the global sequence ID of the last event processed.
             projection_name: The name of the projection this snapshot is for.
                 This allows a single event stream to have snapshots for multiple
                 different read models.

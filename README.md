@@ -11,10 +11,11 @@ This library provides the core components needed to build event-sourced systems,
 ## Key Features
 
 *   **Simple & Serverless**: Uses SQLite for a file-based, zero-dependency persistence layer. Defaults to a non-persistent, in-memory database if no file is specified.
+*   **Global Event Stream**: Query all events across all streams in their global sequence using the special `'@all'` stream, perfect for building cross-stream read models or for auditing.
 *   **Idempotent Writes**: Prevents duplicate events in distributed systems by using an optional `id` on each event.
 *   **Optimistic Concurrency Control**: Ensures data integrity by allowing writes only against a specific, expected stream version.
 *   **Efficient Watching**: A centralized notifier polls the database once to serve all watchers, avoiding the "thundering herd" problem and ensuring low-latency updates.
-*   **Snapshot Support**: Accelerate state reconstruction for long-lived streams by saving and loading state snapshots.
+*   **Snapshot Support**: Accelerate state reconstruction for long-lived streams by saving and loading state snapshots. This is also supported for the `'@all'` stream, which is ideal for complex, system-wide projections.
 *   **Fully Async API**: Built from the ground up with `asyncio` for high-performance, non-blocking I/O.
 *   **Extensible by Design**: Core logic is decoupled from storage implementation via `Protocol`-based adapters. While this package provides a highly-optimized SQLite backend, you can easily create your own adapters for other databases (e.g., PostgreSQL, Firestore).
 
@@ -79,4 +80,5 @@ For more detailed examples covering snapshots, watching for live events, and sta
 ## Testing
 
 Run the test suite:
+```
 ```

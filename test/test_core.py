@@ -582,3 +582,48 @@ async def test_watch_all_stream(open_stream):
     assert events_seen[1].sequence_id == 2
     assert events_seen[2].type == "s1-e2"
     assert events_seen[2].sequence_id == 3
+
+
+@pytest.mark.asyncio
+async def test_snapshot_all_stream(open_stream):
+    """Tests that snapshotting the '@all' stream works correctly."""
+    # Write some events to different streams
+    async with open_stream("stream1") as s1:
+        await s1.write([CandidateEvent(type="s1-e1", data=b"1")]) # seq 1
+    async with open_stream("stream2") as s2:
+        await s2.write([CandidateEvent(type="s2-e1", data=b"2")]) # seq 2
+    async with open_stream("stream1") as s1:
+        await s1.write([CandidateEvent(type="s1-e2", data=b"3")]) # seq 3
+
+    # Build a projection from the @all stream
+    all_events_state = []
+    last_sequence_id = 0
+    async with open_stream("@all") as s_all:
+        async for event in s_all.read():
+            all_events_state.append(event.type)
+            last_sequence_id = event.sequence_id
+        
+        # Snapshot the projection state. The version is the last sequence_id.
+        await s_all.snapshot(
+            str(all_events_state).encode(), 
+            version=last_sequence_id, 
+            projection_name="all_events_proj"
+        )
+
+    # Write another event
+    async with open_stream("stream2") as s2:
+        await s2.write([CandidateEvent(type="s2-e2", data=b"4")]) # seq 4
+
+    # Restore from snapshot and continue
+    async with open_stream("@all") as s_all:
+        snapshot = await s_all.load_snapshot(projection_name="all_events_proj")
+        assert snapshot is not None
+        assert snapshot.version == 3
+        
+        restored_state = eval(snapshot.state.decode())
+        
+        # Read from the snapshot's version (which is the sequence id)
+        async for event in s_all.read(from_version=snapshot.version):
+            restored_state.append(event.type)
+
+        assert restored_state == ["s1-e1", "s2-e1", "s1-e2", "s2-e2"]
