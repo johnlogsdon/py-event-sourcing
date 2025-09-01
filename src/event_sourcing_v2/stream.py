@@ -7,10 +7,7 @@ for a given configuration and returns an `open_stream` function that is bound
 to those resources. This functional approach avoids global singletons and makes
 resource management explicit.
 """
-import asyncio
-from contextlib import asynccontextmanager
 import zlib
-import aiosqlite
 from typing import (
     Any,
     AsyncIterable,
@@ -21,7 +18,6 @@ from datetime import datetime, timezone
 
 from .models import Event, Snapshot
 from .protocols import Notifier, StorageHandle, Stream
-
 
 class StreamImpl(Stream):
     def __init__(self, stream_id: str, handle: StorageHandle, notifier: Notifier):
