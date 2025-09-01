@@ -16,7 +16,7 @@ This library provides the core components needed to build event-sourced systems,
 *   **Efficient Watching**: A centralized notifier polls the database once to serve all watchers, avoiding the "thundering herd" problem and ensuring low-latency updates.
 *   **Snapshot Support**: Accelerate state reconstruction for long-lived streams by saving and loading state snapshots.
 *   **Fully Async API**: Built from the ground up with `asyncio` for high-performance, non-blocking I/O.
-*   **Extensible by Design**: Core logic is decoupled from the implementation via `Protocol`-based adapters, allowing for future extensions.
+*   **Extensible by Design**: Core logic is decoupled from storage implementation via `Protocol`-based adapters. While this package provides a highly-optimized SQLite backend, you can easily create your own adapters for other databases (e.g., PostgreSQL, Firestore).
 
 ## Installation
 
@@ -80,5 +80,10 @@ uv run pytest
 ```
 
 The test suite in `test/test_core.py` also serves as a comprehensive set of usage examples.
+
+## Further Reading
+
+*   **[Core Concepts (`concepts.md`)](./concepts.md)**: For a detailed explanation of the event sourcing principles and design choices behind this library.
+*   **[Performance Benchmarks (`benchmark.py`)](./benchmark.py)**: To see how the library performs under heavy load and to run the benchmarks yourself.
 
 ## Contributing
