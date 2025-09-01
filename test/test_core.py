@@ -3,7 +3,7 @@ from pytest_asyncio import fixture
 import asyncio
 from datetime import datetime, timezone
 from event_sourcing_v2 import Event
-from event_sourcing_v2.storage import SQLiteStorage
+from event_sourcing_v2.adaptors.sqlite import SQLiteStorage
 import pydantic_core
 
 import tempfile

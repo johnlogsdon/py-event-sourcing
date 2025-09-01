@@ -1,12 +1,6 @@
 # event_sourcing_v2 package
 
-from .stream import stream_factory
-from .models import Event, Snapshot
-from .protocols import Stream
+from .models import Event
+from .adaptors.sqlite import SQLiteStorage
 
-__all__ = [
-    "stream_factory",
-    "Event",
-    "Snapshot",
-    "Stream",
-]
+__all__ = ["Event", "SQLiteStorage"]

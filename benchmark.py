@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import functools
 
 from event_sourcing_v2 import Event
-from event_sourcing_v2.storage import SQLiteStorage
+from event_sourcing_v2.adaptors.sqlite import SQLiteStorage
 
 
 class CounterState:

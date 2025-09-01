@@ -3,8 +3,8 @@ from pytest_asyncio import fixture
 import asyncio
 from datetime import datetime
 from event_sourcing_v2.models import Event, Snapshot
-from event_sourcing_v2.storage import SQLiteStorage
 from event_sourcing_v2.adaptors.sqlite import (
+    SQLiteStorage,
     sqlite_open_adapter,
 )
 
