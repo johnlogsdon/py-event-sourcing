@@ -18,7 +18,93 @@ from collections import defaultdict
 from datetime import datetime
 
 from ..models import Event, Snapshot
-from ..protocols import StorageHandle
+from ..protocols import StorageHandle, Notifier
+
+
+class SQLiteStorageHandle(StorageHandle):
+    """
+    A handle that manages read and write operations for a specific stream
+    using a dedicated write connection and a pool of read connections.
+    """
+
+    def __init__(
+        self,
+        stream_id: str,
+        write_conn: aiosqlite.Connection,
+        write_lock: asyncio.Lock,
+        read_pool: asyncio.Queue,
+    ):
+        self.stream_id = stream_id
+        self.write_conn = write_conn
+        self.write_lock = write_lock
+        self.read_pool = read_pool
+        self.version = -1  # Uninitialized
+
+    async def _async_init(self):
+        """Initializes the stream's version from a read connection."""
+        conn = await self.read_pool.get()
+        try:
+            async with conn.execute(
+                "SELECT MAX(version) FROM events WHERE stream_id = ?", (self.stream_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                self.version = row[0] if row and row[0] is not None else 0
+        finally:
+            await self.read_pool.put(conn)
+
+    async def sync(self, new_events: List[Event], expected_version: int):
+        """Persists new events using the dedicated write connection."""
+        async with self.write_lock:
+            async with sqlite_open_adapter(self.write_conn, self.stream_id) as handle:
+                new_version = await handle.sync(new_events, expected_version)
+                self.version = new_version
+                return new_version
+
+    async def find_existing_ids(self, event_ids: List[str]) -> Set[str]:
+        """Finds existing event IDs using the write connection, to ensure transaction consistency."""
+        handle = SQLiteHandle(self.write_conn, self.stream_id)
+        return await handle.find_existing_ids(event_ids)
+
+    async def get_events(self, start_version: int = 0) -> AsyncIterable[Event]:
+        """Gets events using a read connection."""
+        conn = await self.read_pool.get()
+        try:
+            handle = SQLiteHandle(conn, self.stream_id)
+            await handle._async_init()
+            async for event in handle.get_events(start_version):
+                yield event
+        finally:
+            await self.read_pool.put(conn)
+
+    async def get_last_timestamp(self) -> datetime | None:
+        """Gets the last timestamp using a read connection."""
+        conn = await self.read_pool.get()
+        try:
+            handle = SQLiteHandle(conn, self.stream_id)
+            await handle._async_init()
+            return await handle.get_last_timestamp()
+        finally:
+            await self.read_pool.put(conn)
+
+    async def save_snapshot(self, snapshot: Snapshot):
+        """Saves a snapshot using the dedicated write connection."""
+        async with self.write_lock:
+            async with sqlite_open_adapter(self.write_conn, self.stream_id) as handle:
+                await handle.save_snapshot(snapshot)
+                self.version = snapshot.version
+
+    async def load_latest_snapshot(
+        self, stream_id: str, projection_name: str = "default"
+    ) -> Snapshot | None:
+        """Loads a snapshot using a read connection."""
+        conn = await self.read_pool.get()
+        try:
+            handle = SQLiteHandle(conn, self.stream_id)
+            await handle._async_init()
+            return await handle.load_latest_snapshot(stream_id, projection_name)
+        finally:
+            await self.read_pool.put(conn)
+
 
 class SQLiteHandle(StorageHandle):
     """
@@ -27,16 +113,30 @@ class SQLiteHandle(StorageHandle):
     This class encapsulates all SQL queries and logic required to persist and
     retrieve event sourcing data from a SQLite database.
     """
-    def __init__(self, conn: aiosqlite.Connection, stream_id: str, initial_version: int):
+    def __init__(self, conn: aiosqlite.Connection, stream_id: str):
         self.conn = conn
         self.stream_id = stream_id
-        self.version = initial_version
+        self.version = -1 # Uninitialized
+
+    async def _async_init(self):
+        """Asynchronously initializes the stream's version."""
+        async with self.conn.execute(
+            "SELECT MAX(version) FROM events WHERE stream_id = ?", (self.stream_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            self.version = row[0] if row and row[0] is not None else 0
 
     async def sync(self, new_events: List[Event], expected_version: int):
         """
         Persist new events to the SQLite database in a transaction,
         atomically checking for the expected version.
         """
+        # Idempotency check must be done inside the transaction.
+        idempotency_keys_to_check = [e.id for e in new_events if e.id]
+        if idempotency_keys_to_check:
+            existing_ids = await self.find_existing_ids(idempotency_keys_to_check)
+            new_events = [e for e in new_events if e.id not in existing_ids]
+
         try:
             # Use a savepoint to manage the transaction within the shared connection.
             # This provides transaction-like atomicity without requiring an exclusive
@@ -58,7 +158,13 @@ class SQLiteHandle(StorageHandle):
                     f"Concurrency conflict: expected version {expected_version}, but stream is at {current_version}"
                 )
 
-            # 3. Insert new events if any
+            # 3. Filter out events that have already been persisted
+            idempotency_keys_to_check = [e.id for e in new_events if e.id]
+            if idempotency_keys_to_check:
+                existing_ids = await self.find_existing_ids(idempotency_keys_to_check)
+                new_events = [e for e in new_events if e.id not in existing_ids]
+
+            # 4. Insert new events if any
             if new_events:
                 # Assign versions to new events
                 for i, event in enumerate(new_events):
@@ -74,11 +180,10 @@ class SQLiteHandle(StorageHandle):
                 )
 
             await self.conn.execute("RELEASE SAVEPOINT event_append")
-            await self.conn.commit()
+            return current_version + len(new_events) # Return the new version
         except Exception as e:
             await self.conn.execute("ROLLBACK TO SAVEPOINT event_append")
             logging.error(f"Failed to sync events to SQLite: {e}")
-            await self.conn.commit()  # Ensure transaction is closed even on error
             raise
 
     async def find_existing_ids(self, event_ids: List[str]) -> Set[str]:
@@ -131,7 +236,6 @@ class SQLiteHandle(StorageHandle):
             "INSERT OR REPLACE INTO snapshots (stream_id, projection_name, version, state, timestamp) VALUES (?, ?, ?, ?, ?)",
             (snapshot.stream_id, snapshot.projection_name, snapshot.version, snapshot.state, snapshot.timestamp.isoformat()),
         )
-        await self.conn.commit()
 
     async def load_latest_snapshot(self, stream_id: str, projection_name: str = "default") -> Snapshot | None:
         """Loads the latest snapshot for a given stream_id and projection_name, or None if no snapshot exists."""
@@ -156,7 +260,7 @@ class SQLiteHandle(StorageHandle):
         pass
 
 
-class SQLitePollingNotifier:
+class SQLiteNotifier(Notifier):
     """
     A centralized watcher that polls the database once for all new events
     and dispatches them to the appropriate stream watchers.
@@ -173,10 +277,7 @@ class SQLitePollingNotifier:
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
-    async def start(self):
-        """Ensures schema exists and starts the polling task."""
-        if self._task:
-            return
+    async def _create_schema(self):
         # Schema management is centralized here. The first notifier created for a
         # given database file is responsible for ensuring the necessary tables
         # and indexes exist.
@@ -223,7 +324,12 @@ class SQLitePollingNotifier:
             )
         """
         )
-        await self._conn.commit()
+
+    async def start(self):
+        """Ensures schema exists and starts the polling task."""
+        if self._task:
+            return
+        await self._create_schema()
         # Get the last known event ID to start polling from.
         async with self._conn.execute("SELECT MAX(id) FROM events") as cursor:
             row = await cursor.fetchone()
@@ -248,6 +354,7 @@ class SQLitePollingNotifier:
         while True:
             try:
                 query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version FROM events WHERE id > ? ORDER BY id"
+                last_id_in_batch = self._last_id # Store the starting point for this batch
                 async with self._conn.execute(query, (self._last_id,)) as cursor:
                     async for row in cursor:
                         (
@@ -272,11 +379,12 @@ class SQLitePollingNotifier:
                             if stream_id in self._watchers:
                                 for queue in self._watchers[stream_id]:
                                     await queue.put(event)
-                            self._last_id = _id
+                            last_id_in_batch = _id # Update temporary variable
                         except Exception as e:
                             logging.warning(
                                 f"Notifier skipping malformed event row with id {_id}: {e}"
                             )
+                self._last_id = last_id_in_batch # Only update if entire batch processed
             except Exception as e:
                 logging.error(f"Notifier poll loop error: {e}")
             await asyncio.sleep(self._polling_interval)
@@ -298,23 +406,28 @@ class SQLitePollingNotifier:
 
 
 @asynccontextmanager
-async def sqlite_open_adapter(conn: aiosqlite.Connection, db_path: str, stream_id: str) -> AsyncIterator[StorageHandle]:
+async def sqlite_open_adapter(conn: aiosqlite.Connection, stream_id: str) -> AsyncIterator[StorageHandle]:
     """
-    Adapter that uses a shared database connection.
-    Schema initialization is now handled by the Notifier to ensure it happens
-    only once per database, and is safe for production use.
+    Adapter that uses a shared database connection for write transactions.
+    It begins a transaction on entry and commits on successful exit.
     """
-    # Get the initial version count for the stream. This is done here to ensure
-    # the handle starts with the correct version number for this specific stream.
-    async with conn.execute(
-        "SELECT MAX(version) FROM events WHERE stream_id = ?",
-        (stream_id,),
-    ) as cursor:
-        row = await cursor.fetchone()
-        initial_version = row[0] if row and row[0] is not None else 0
-
-    handle = SQLiteHandle(conn, stream_id, initial_version)
+    handle = SQLiteHandle(conn, stream_id)
+    await handle._async_init()
+    
     try:
         yield handle
-    finally:
-        await handle.close()
+        await conn.commit()
+    except Exception:
+        await conn.rollback()
+        raise
+
+
+@asynccontextmanager
+async def sqlite_read_adapter(conn: aiosqlite.Connection, stream_id: str) -> AsyncIterator[StorageHandle]:
+    """
+    Adapter that provides a handle for read-only operations.
+    No transaction is started or committed.
+    """
+    handle = SQLiteHandle(conn, stream_id)
+    await handle._async_init()
+    yield handle

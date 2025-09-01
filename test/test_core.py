@@ -2,24 +2,28 @@ import pytest
 from pytest_asyncio import fixture
 import asyncio
 from datetime import datetime, timezone
-from event_sourcing_v2 import stream_factory, Event
+from event_sourcing_v2 import Event
+from event_sourcing_v2.storage import SQLiteStorage
 import pydantic_core
 
 import tempfile
 import os
 import time
 
+
 @fixture
 def fresh_config():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        yield {"url": f"sqlite:///{db_path}"}
+        yield {"db_path": db_path}
+
 
 @fixture
 async def open_stream(fresh_config):
-    """Provides a clean open_stream function for each test, wrapped in a resource-managing context."""
-    async with stream_factory(fresh_config) as open_stream_func:
-        yield open_stream_func
+    """Provides a clean open_stream function for each test."""
+    async with SQLiteStorage(fresh_config) as storage:
+        yield storage.open_stream
+
 
 # Test 1
 @pytest.mark.asyncio
@@ -95,16 +99,6 @@ async def test_append_with_no_metadata(open_stream):
         read_events = [e async for e in stream.read()]
         assert len(read_events) == 1
         assert read_events[0].metadata is None
-
-@pytest.mark.asyncio
-async def test_unsupported_scheme():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config = {"url": f"file://{tmpdir}/test.txt"}
-        with pytest.raises(ValueError, match="Unsupported scheme: file. Only 'sqlite' is supported."):
-            async with stream_factory(config) as open_stream:
-                # The error should be raised when the context is entered, not just on creation.
-                async with open_stream("test"):
-                    pass
 
 @pytest.mark.asyncio
 async def test_file_persistence(open_stream):

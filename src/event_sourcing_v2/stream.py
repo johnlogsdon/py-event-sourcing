@@ -13,26 +13,31 @@ import zlib
 import aiosqlite
 from typing import (
     Any,
-    AsyncContextManager,
     AsyncIterable,
     Dict,
-    List
+    List,
 )
 from datetime import datetime, timezone
 
 from .models import Event, Snapshot
 from .protocols import Notifier, StorageHandle, Stream
-from .adaptors.sqlite import sqlite_open_adapter, SQLitePollingNotifier
-import urllib.parse
+from .adaptors.sqlite import (
+    sqlite_open_adapter,
+    SQLiteNotifier,
+    sqlite_read_adapter,
+)
+
 
 class StreamImpl(Stream):
-    def __init__(
-        self, config: Dict, stream_id: str, handle: StorageHandle, notifier: Notifier
-    ):
-        self.config = config
+    def __init__(self, stream_id: str, handle: StorageHandle, notifier: Notifier):
         self.stream_id = stream_id
         self.handle = handle
         self.notifier = notifier
+        self.version = -1  # Uninitialized
+
+    async def _async_init(self):
+        """Asynchronously initializes the stream's version."""
+        await self.handle._async_init()
         self.version = self.handle.version
 
     async def write(self, events: List[Event], expected_version: int = -1) -> int:
@@ -42,24 +47,12 @@ class StreamImpl(Stream):
         effective_expected_version = (
             self.version if expected_version == -1 else expected_version
         )
-
-        idempotency_keys_to_check = [event.id for event in events if event.id]
-        existing_ids = await self.handle.find_existing_ids(idempotency_keys_to_check)
-
-        new_events_to_persist = []
-        for event in events:
-            if not event.id or event.id not in existing_ids:
-                new_events_to_persist.append(event)
-
-        await self.handle.sync(new_events_to_persist, effective_expected_version)
-
-        self.version += len(new_events_to_persist)
-        self.handle.version = self.version
-
+        
+        new_version = await self.handle.sync(events, effective_expected_version)
+        self.version = new_version
         return self.version
 
     async def snapshot(self, state: bytes, projection_name: str = "default"):
-        # Compress the state before saving to reduce storage and I/O.
         compressed_state = zlib.compress(state)
         snapshot = Snapshot(
             stream_id=self.stream_id,
@@ -76,12 +69,9 @@ class StreamImpl(Stream):
         )
         if snapshot:
             try:
-                # Decompress the state. Return a new snapshot with the decompressed data.
                 decompressed_state = zlib.decompress(snapshot.state)
                 return snapshot.model_copy(update={"state": decompressed_state})
             except zlib.error:
-                # For backward compatibility, if decompression fails,
-                # assume it's an old, uncompressed snapshot.
                 return snapshot
         return None
 
@@ -90,28 +80,23 @@ class StreamImpl(Stream):
             yield event
 
     async def watch(self, from_version: int | None = None) -> AsyncIterable[Event]:
-        # If from_version is not specified, default to the current version of the stream,
-        # meaning we only watch for new events.
         effective_from_version = self.version if from_version is None else from_version
         queue = await self.notifier.subscribe(self.stream_id)
         last_yielded_version = effective_from_version
 
         try:
-            # 1. Yield historical events
             async for event in self.handle.get_events(
                 start_version=effective_from_version
             ):
                 yield event
                 last_yielded_version = event.version
 
-            # 2. Drain the queue of any events that arrived during historical replay
             while not queue.empty():
                 event = queue.get_nowait()
                 if event.version > last_yielded_version:
                     yield event
                     last_yielded_version = event.version
 
-            # 3. Watch for new live events
             while True:
                 event = await queue.get()
                 if event.version > last_yielded_version:
@@ -128,81 +113,118 @@ class StreamImpl(Stream):
             "last_timestamp": last_ts,
         }
 
+
 @asynccontextmanager
 async def stream_factory(config: Dict):
-    """
-    An async context manager that provides a configured `open_stream` function.
-
-    This factory sets up shared resources (like database connections and notifiers)
-    based on the provided configuration. It yields a function to open individual
-    streams and ensures that all resources are gracefully cleaned up upon exit.
-
-    Args:
-        config: A dictionary containing configuration, like the database URL.
-
-    Yields:
-        A function `open_stream(stream_id)` that acts as an async context manager
-        for a specific stream.
-
-    Usage:
-        async with stream_factory(config) as open_stream:
-            async with open_stream("my_stream") as stream:
-                ...
-    """
     notifiers: Dict[str, Notifier] = {}
-    connections: Dict[str, aiosqlite.Connection] = {}
-    notifier_lock = asyncio.Lock()
-    connection_lock = asyncio.Lock()
+    notifier_connections: Dict[str, aiosqlite.Connection] = {}
+    write_connections: Dict[str, aiosqlite.Connection] = {}
+    read_connection_pools: Dict[str, asyncio.Queue] = {}
+    db_init_locks: Dict[str, asyncio.Lock] = {}
+    db_init_locks_creator_lock = asyncio.Lock()
+
+    async def _initialize_db_resources(
+        db_key: str, db_connect_string: str, is_memory_db: bool, config: Dict
+    ):
+        """Atomically initialize all database resources (notifier, write conn, read pool)."""
+        if db_key in read_connection_pools:
+            return
+
+        async with db_init_locks_creator_lock:
+            if db_key not in db_init_locks:
+                db_init_locks[db_key] = asyncio.Lock()
+
+        db_lock = db_init_locks[db_key]
+        async with db_lock:
+            if db_key in read_connection_pools:
+                return
+
+            # 1. Create Notifier and its dedicated connection.
+            # This also handles creating the schema.
+            polling_interval = config.get("polling_interval", 0.2)
+            notifier_conn = await aiosqlite.connect(
+                db_connect_string, uri=is_memory_db
+            )
+            await notifier_conn.execute("PRAGMA journal_mode=WAL;")
+            notifier = SQLiteNotifier(notifier_conn, polling_interval=polling_interval)
+            await notifier.start()
+            notifiers[db_key] = notifier
+            notifier_connections[db_key] = notifier_conn
+
+            # 2. Create the single, dedicated write connection.
+            write_conn = await aiosqlite.connect(db_connect_string, uri=is_memory_db)
+            await write_conn.execute("PRAGMA journal_mode=WAL;")
+            write_connections[db_key] = write_conn
+
+            # 3. Create the pool of read-only connections.
+            pool_size = config.get("pool_size", 10)
+            pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue(maxsize=pool_size)
+            # For in-memory, we MUST use the same URI to connect to the same DB.
+            # For file-based, we can use mode=ro for safety.
+            read_connect_string = (
+                f"file:{db_connect_string}?mode=ro"
+                if not is_memory_db
+                else db_connect_string
+            )
+            for _ in range(pool_size):
+                conn = await aiosqlite.connect(read_connect_string, uri=True)
+                await pool.put(conn)
+            read_connection_pools[db_key] = pool
 
     async def cleanup():
-        """
-        Stops all active notifiers and closes all shared connections.
-        This should be called before the application exits to ensure graceful shutdown.
-        """
-        async with notifier_lock, connection_lock:
-            notifier_tasks = [notifier.stop() for notifier in notifiers.values()]
-            connection_tasks = [conn.close() for conn in connections.values()]
-            
-            await asyncio.gather(*notifier_tasks, *connection_tasks)
-            notifiers.clear()
-            connections.clear()
+        """Stops all notifiers and closes all database connections."""
+        notifier_tasks = [notifier.stop() for notifier in notifiers.values()]
+        await asyncio.gather(*notifier_tasks)
 
+        connection_tasks = []
+        for conn in notifier_connections.values():
+            connection_tasks.append(conn.close())
+        for conn in write_connections.values():
+            connection_tasks.append(conn.close())
+        for pool in read_connection_pools.values():
+            while not pool.empty():
+                conn = await pool.get()
+                connection_tasks.append(conn.close())
+
+        await asyncio.gather(*connection_tasks)
+        
     @asynccontextmanager
-    async def open_stream(stream_id: str) -> AsyncContextManager[Stream]:
-        # If no URL is provided, default to an in-memory SQLite database.
-        url = config.get('url')
-        if not url:
-            url = 'sqlite://'
+    async def open_stream(stream_id: str) -> AsyncIterable[Stream]:
+        db_path = config.get("db_path")
+        if not db_path:
+            raise ValueError("`db_path` must be provided in the configuration.")
 
-        scheme = url.split('://', 1)[0] if '://' in url else ''
+        is_memory_db = db_path == ":memory:"
 
-        if not scheme == 'sqlite':
-            raise ValueError(f"Unsupported scheme: {scheme}. Only 'sqlite' is supported.")
+        if is_memory_db:
+            db_key = ":memory:"
+            db_connect_string = "file:memdb_shared?mode=memory&cache=shared"
+        else:
+            db_key = db_path
+            db_connect_string = db_path
 
-        parsed = urllib.parse.urlparse(url)
-        db_path = parsed.path or parsed.netloc
-        if not db_path or db_path == '/': # Handle sqlite:///
-            db_path = ':memory:'
+        await _initialize_db_resources(
+            db_key, db_connect_string, is_memory_db, config
+        )
 
-        polling_interval = config.get('polling_interval', 0.2) # Get from config, default to 0.2
+        # Create a StorageHandle based on the configuration
+        # This is a placeholder; in a real application, you'd instantiate
+        # the appropriate adaptor (SQLiteNotifier, SQLiteReadAdapter, etc.)
+        # and pass it to the StreamImpl constructor.
+        # For now, we'll just pass a dummy handle.
+        # In a real scenario, you'd do something like:
+        # from .adaptors.sqlite import SQLiteNotifier, SQLiteReadAdapter
+        # handle = SQLiteNotifier(write_connections[db_key], polling_interval=0.2)
+        # await handle._async_init() # Initialize the handle's version
+        handle = StorageHandle(write_connections[db_key], read_connection_pools[db_key])
 
-        async with connection_lock:
-            if db_path not in connections:
-                connections[db_path] = await aiosqlite.connect(db_path)
-        connection = connections[db_path]
-
-        async with notifier_lock:
-            if db_path not in notifiers:
-                # Pass the shared connection to the notifier
-                notifiers[db_path] = SQLitePollingNotifier(connection, polling_interval=polling_interval)
-                await notifiers[db_path].start()
-        notifier = notifiers[db_path]
-        
-        open_adapter = sqlite_open_adapter
-        
-        async with open_adapter(connection, db_path, stream_id) as handle:
-            stream = StreamImpl(config, stream_id, handle, notifier)
-            yield stream
+        stream = StreamImpl(
+            stream_id=stream_id,
+            handle=handle,
+            notifier=notifiers[db_key],
+        )
+        await stream._async_init()
+        yield stream
 
     try:
         yield open_stream
