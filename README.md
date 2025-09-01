@@ -1,16 +1,14 @@
 # Event Sourcing V2
 
-<!--
-[PROMPT_SUGGESTION]The `write` method in `streams.py` seems to have a lot of logic. Can you refactor it for clarity?[/PROMPT_SUGGESTION]
-[PROMPT_SUGGESTION]Can you add docstrings to the public methods in `streams.py` to explain what they do, their parameters, and what they return?[/PROMPT_SUGGESTION]
--->
-A minimal, elegant, and functional event sourcing library for Python, built with `asyncio` and a file-based SQLite backend.
+A minimal, `asyncio`-native event sourcing library for Python using SQLite. It provides the core components for event-sourced systems, with a simple API for `write`, `read`, and `watch` operations on event streams.
 
-This library provides the core components needed to build event-sourced systems, focusing on simplicity, a clean API, and efficiency. It treats event streams as the single source of truth (SSOT) and provides familiar async I/O operations (`write`, `read`, `watch`) to interact with them.
+For a deeper dive into the concepts and design, please see:
+*   **[Concepts](docs/CONCEPTS.md)**: An introduction to the Event Sourcing pattern.
+*   **[Design](docs/DESIGN.md)**: An overview of the library's architecture and components.
 
 ## Key Features
 
-*   **Simple & Serverless**: Uses SQLite for a file-based, zero-dependency persistence layer. Defaults to a non-persistent, in-memory database if no file is specified.
+*   **Simple & Serverless**: Uses SQLite for a file-based, zero-dependency persistence layer.
 *   **Global Event Stream**: Query all events across all streams in their global sequence using the special `'@all'` stream, perfect for building cross-stream read models or for auditing.
 *   **Idempotent Writes**: Prevents duplicate events in distributed systems by using an optional `id` on each event.
 *   **Optimistic Concurrency Control**: Ensures data integrity by allowing writes only against a specific, expected stream version.
@@ -40,45 +38,115 @@ Here’s a quick example of writing to and reading from a stream.
 
 ```python
 import asyncio
-from datetime import datetime
+import os
+import tempfile
 from event_sourcing_v2 import sqlite_stream_factory, CandidateEvent
 
 async def main():
-    # To use a persistent file-based database:
-    # db_path = "my_events.db"
-    # To use a non-persistent, in-memory database:
-    db_path = ":memory:"
+    # Use a temporary file for the database to keep the example self-contained.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "example.db")
 
-    # The factory is an async context manager that handles all resources.
-    async with sqlite_stream_factory(db_path) as open_stream:
-        stream_id = "my_first_stream"
+        # The factory is an async context manager that handles all resources.
+        async with sqlite_stream_factory(db_path) as open_stream:
+            stream_id = "my_first_stream"
 
-        # Write an event
-        async with open_stream(stream_id) as stream:
-            # Use CandidateEvent to create an event to be written.
-            # The timestamp and version are added by the system.
-            event = CandidateEvent(type="UserRegistered", data=b'{"user": "Alice"}')
-            await stream.write([event])
-            print(f"Event written. Stream version is now {stream.version}.")
+            # Write an event
+            async with open_stream(stream_id) as stream:
+                event = CandidateEvent(type="UserRegistered", data=b'{"user": "Alice"}')
+                await stream.write([event])
+                print(f"Event written. Stream version is now {stream.version}.")
 
-        # Read the event back
-        async with open_stream(stream_id) as stream:
-            # Events read from the stream are StoredEvent objects, 
-            # which include system-set fields like version and timestamp.
-            all_events = [e async for e in stream.read()]
-            print(f"Read {len(all_events)} event(s) from the stream.")
-            print(f"  -> Event type: {all_events[0].type}, Data: {all_events[0].data.decode()}, Version: {all_events[0].version}")
+            # Read the event back
+            async with open_stream(stream_id) as stream:
+                all_events = [e async for e in stream.read()]
+                print(f"Read {len(all_events)} event(s) from the stream.")
+                print(f"  -> Event type: {all_events[0].type}, Data: {all_events[0].data.decode()}, Version: {all_events[0].version}")
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-## Full Examples
+## Basic Usage
 
-For more detailed examples covering snapshots, watching for live events, and state reconstruction, please see the fully commented example file: `basic_usage.py`.
+For a detailed, fully-commented example covering all major features (writing, reading, snapshots, and watching), please see [`basic_usage.py`](basic_usage.py).
+
+To run the example:
+```bash
+uv run python3 basic_usage.py
+```
+
+**Sample Output:**
+```
+--- Example 1: Writing and Reading Events ---
+Stream 'counter_stream_1' is now at version 3.
+Reading all events from the stream:
+  - Event version 1: Increment
+  - Event version 2: Increment
+  - Event version 3: Decrement
+
+--- Example 2: Reconstructing State from Events (Read Model & Projector) ---
+Reconstructed state: Counter is 1.
+
+--- Example 3: Watching for New Events ---
+Watching for events (historical and new)...
+  - Watched event: Increment (version 1)
+  - Watched event: Increment (version 2)
+  - Watched event: Decrement (version 3)
+Writing new events to trigger the watcher...
+  - Watched event: Increment (version 4)
+  - Watched event: Increment (version 5)
+
+--- Example 4: Using Snapshots for Efficiency ---
+Snapshot for 'counter' projection saved at version 5 with state: count = 3
+State for 'counter' projection restored from snapshot at version 5. Count is 3.
+Replaying events since snapshot...
+  - Applying event version 6: Increment
+Final reconstructed state: Counter is 4.
+```
+
+## Benchmarks
+
+A benchmark script is included to measure write/read throughput and demonstrate the performance benefits of using snapshots. You can find the script at [`benchmark.py`](benchmark.py).
+
+To run the benchmark:
+```bash
+uv run python3 benchmark.py
+```
+
+**Sample Output:**
+```
+--- Running benchmark with 1,000,000 events ---
+Writing 1,000,000 events...
+
+Finished writing 1,000,000 events in 9.41 seconds.
+Write throughput: 106,320.88 events/sec.
+
+--- Benchmark 1: Reconstructing state from all events ---
+Reconstructed state (all events): Counter is 1,000,000.
+Time to reconstruct from all events: 2.66 seconds.
+Read throughput: 375,273.94 events/sec.
+
+--- Benchmark 2: Reconstructing state using snapshot ---
+Creating snapshot...
+Snapshot created.
+Writing 100 additional events...
+Finished writing 100 additional events.
+State restored from snapshot at version 1,000,000.
+Reconstructed state (with snapshot): Counter is 1,000,100.
+Time to reconstruct with snapshot: 0.00 seconds.
+
+--- Benchmark Summary ---
+Time to reconstruct from all 1,000,100 events: 2.66 seconds.
+Time to reconstruct with snapshot (after 1,000,000 events): 0.0007 seconds.
+
+Database file size: 148.13 MB
+```
 
 ## Testing
 
-Run the test suite:
-```
+The test suite uses `pytest`. To run all tests, use the following command:
+
+```bash
+uv run pytest
 ```

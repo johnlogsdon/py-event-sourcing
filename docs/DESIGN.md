@@ -65,40 +65,40 @@ graph TD
 
 ### `sqlite_stream_factory`
 
-*   **Role**: The single public entry point for creating and managing SQLite-backed event streams.
+*   **Role**: Public entry point for creating SQLite-backed event streams.
 *   **Responsibility**:
-    *   Manages the lifecycle of all database connections (a dedicated write connection, a pool of read connections, and a notifier connection).
-    *   Initializes the database schema if it doesn't exist.
-    *   Instantiates and wires together the `SQLiteStorageHandle`, `SQLiteNotifier`, and `StreamImpl` components.
-    *   Provides a simple, clean factory function to the user, abstracting away all the underlying complexity.
+    *   Manages database connection lifecycles (write, read pool, notifier).
+    *   Initializes the database schema.
+    *   Instantiates and wires together `SQLiteStorageHandle`, `SQLiteNotifier`, and `StreamImpl`.
+    *   Provides a simple factory function, abstracting away implementation details.
 
 ### `StreamImpl`
 
-*   **Role**: The core implementation of the `Stream` protocol. It orchestrates the business logic of an event stream.
+*   **Role**: Core implementation of the `Stream` protocol; orchestrates business logic.
 *   **Responsibility**:
-    *   Maintains the in-memory state of a stream (e.g., `stream_id`, `version`).
+    *   Maintains in-memory stream state (`stream_id`, `version`).
     *   Handles optimistic concurrency checks.
-    *   Delegates persistence and retrieval operations to the `StorageHandle` injected into it.
-    *   Delegates the `watch` operation to the `Notifier` injected into it.
-    *   Is completely agnostic of the underlying storage mechanism.
+    *   Delegates persistence to the injected `StorageHandle`.
+    *   Delegates `watch` operations to the injected `Notifier`.
+    *   Agnostic of the underlying storage mechanism.
 
 ### `SQLiteStorageHandle`
 
-*   **Role**: The concrete implementation of the `StorageHandle` protocol for SQLite.
+*   **Role**: SQLite implementation of the `StorageHandle` protocol.
 *   **Responsibility**:
-    *   Executes all low-level database operations (INSERT, SELECT) for events and snapshots.
-    *   Manages transactions (`SAVEPOINT`) to ensure atomic writes.
-    *   Implements idempotency checks to prevent duplicate events.
-    *   Contains all SQL queries and logic specific to the SQLite database schema.
+    *   Executes low-level SQL operations (INSERT, SELECT) for events and snapshots.
+    *   Manages transactions (`SAVEPOINT`) for atomic writes.
+    *   Implements idempotency checks.
+    *   Contains all SQLite-specific SQL queries and logic.
 
 ### `SQLiteNotifier`
 
-*   **Role**: The concrete implementation of the `Notifier` protocol for SQLite.
+*   **Role**: SQLite implementation of the `Notifier` protocol.
 *   **Responsibility**:
-    *   Runs a background task that periodically polls the `events` table for new records.
-    *   Manages a list of active watchers (subscribers).
-    *   Notifies all relevant watchers when new events are detected for their stream.
-    *   Handles the "replay" of historical events when a watcher connects.
+    *   Runs a background task to poll the `events` table.
+    *   Manages active watchers (subscribers).
+    *   Notifies watchers of new events.
+    *   Handles replay of historical events for new watchers.
 
 ## 4. Extensibility Guide
 
