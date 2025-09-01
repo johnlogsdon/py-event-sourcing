@@ -1,6 +1,6 @@
-# Event Sourcing V2
+# pysource - A minimal, `asyncio`-native event sourcing library
 
-A minimal, `asyncio`-native event sourcing library for Python using SQLite. It provides the core components for event-sourced systems, with a simple API for `write`, `read`, and `watch` operations on event streams.
+This library provides core components for building event-sourced systems in Python. It uses SQLite for persistence and offers a simple API for `write`, `read`, and `watch` operations on event streams.
 
 For a deeper dive into the concepts and design, please see:
 *   **[Concepts](docs/CONCEPTS.md)**: An introduction to the Event Sourcing pattern.
@@ -40,7 +40,7 @@ Here’s a quick example of writing to and reading from a stream.
 import asyncio
 import os
 import tempfile
-from event_sourcing_v2 import sqlite_stream_factory, CandidateEvent
+from pysource import sqlite_stream_factory, CandidateEvent
 
 async def main():
     # Use a temporary file for the database to keep the example self-contained.

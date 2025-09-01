@@ -1,4 +1,4 @@
-# Design Document: Event Sourcing V2
+# Design Document: pysource
 
 This document provides a high-level overview of the architecture, components, and design philosophy of the `event-sourcing-v2` library.
 

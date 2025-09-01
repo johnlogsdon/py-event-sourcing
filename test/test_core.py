@@ -1,19 +1,18 @@
 import asyncio
 import tempfile
 import time
-from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 import pydantic_core
 import pytest
 from pytest_asyncio import fixture
 
-from event_sourcing_v2 import sqlite_stream_factory
-from event_sourcing_v2.models import CandidateEvent
+from pysource import sqlite_stream_factory, CandidateEvent
 
 
 @fixture
-def db_path() -> str:
+def db_path() -> Iterator[str]:
     """Provides a path to a temporary, isolated database file."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield str(Path(tmpdir) / "test.db")

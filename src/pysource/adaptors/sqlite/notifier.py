@@ -6,8 +6,8 @@ from datetime import datetime
 import asyncio
 from collections import defaultdict
 
-from event_sourcing_v2.models import StoredEvent
-from event_sourcing_v2.protocols import Notifier
+from pysource.models import StoredEvent
+from pysource.protocols import Notifier
 
 
 class SQLiteNotifier(Notifier):

@@ -1,7 +1,7 @@
 [project]
-name = "event_sourcing_v2"
+name = "pysource"
 version = "0.1.0"
-description = "v2 implementation"
+description = "A minimal, `asyncio`-native event sourcing library"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

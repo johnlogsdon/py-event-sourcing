@@ -8,8 +8,8 @@ from datetime import datetime
 import asyncio
 import uuid
 
-from event_sourcing_v2.models import CandidateEvent, StoredEvent, Snapshot
-from event_sourcing_v2.protocols import StorageHandle
+from pysource.models import CandidateEvent, StoredEvent, Snapshot
+from pysource.protocols import StorageHandle
 
 
 class SQLiteStorageHandle(StorageHandle):

@@ -2,9 +2,8 @@ import asyncio
 import os
 import tempfile
 import json
-from datetime import datetime
 
-from event_sourcing_v2 import sqlite_stream_factory, CandidateEvent, StoredEvent
+from pysource import sqlite_stream_factory, CandidateEvent, StoredEvent
 
 
 # This is a simple state model for our example.

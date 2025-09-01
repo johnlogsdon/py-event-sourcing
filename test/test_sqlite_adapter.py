@@ -1,15 +1,9 @@
 import pytest
 from pytest_asyncio import fixture
 import asyncio
-from datetime import datetime
-from event_sourcing_v2.models import CandidateEvent, Snapshot
-from event_sourcing_v2.adaptors.sqlite import (
-    sqlite_stream_factory,
-    sqlite_open_adapter,
-)
+from pysource import CandidateEvent, sqlite_stream_factory
 import tempfile
 import os
-
 
 @fixture
 async def open_stream():

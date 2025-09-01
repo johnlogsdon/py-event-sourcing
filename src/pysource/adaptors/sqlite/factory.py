@@ -2,10 +2,10 @@ from typing import AsyncIterable, Dict
 from contextlib import asynccontextmanager
 import aiosqlite
 import asyncio
-from event_sourcing_v2.stream import StreamImpl
-from event_sourcing_v2.protocols import Notifier, Stream
-from event_sourcing_v2.adaptors.sqlite.handle import SQLiteStorageHandle
-from event_sourcing_v2.adaptors.sqlite.notifier import SQLiteNotifier
+from pysource.stream import StreamImpl
+from pysource.protocols import Notifier, Stream
+from pysource.adaptors.sqlite.handle import SQLiteStorageHandle
+from pysource.adaptors.sqlite.notifier import SQLiteNotifier
 
 
 @asynccontextmanager

@@ -3,11 +3,9 @@ import os
 import tempfile
 import json
 import time
-from datetime import datetime, timezone
-import functools
 
-from event_sourcing_v2 import CandidateEvent, StoredEvent
-from event_sourcing_v2.adaptors.sqlite import sqlite_stream_factory
+from pysource import CandidateEvent, StoredEvent
+from pysource.adaptors.sqlite import sqlite_stream_factory
 
 
 class CounterState:
