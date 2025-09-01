@@ -3,7 +3,7 @@ from pytest_asyncio import fixture
 import asyncio
 from datetime import datetime, timezone
 from event_sourcing_v2 import Event
-from event_sourcing_v2.adaptors.sqlite import SQLiteStorage
+from event_sourcing_v2.adaptors.sqlite import sqlite_stream_factory
 import pydantic_core
 
 import tempfile
@@ -20,9 +20,8 @@ def fresh_config():
 
 @fixture
 async def open_stream(fresh_config):
-    """Provides a clean open_stream function for each test."""
-    async with SQLiteStorage(fresh_config) as storage:
-        yield storage.open_stream
+    async with sqlite_stream_factory(fresh_config) as open_stream_func:
+        yield open_stream_func
 
 
 # Test 1

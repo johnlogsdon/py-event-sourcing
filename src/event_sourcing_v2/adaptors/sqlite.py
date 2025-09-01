@@ -16,6 +16,7 @@ import json
 import logging
 from collections import defaultdict
 from datetime import datetime
+from ..stream import StreamImpl
 
 from ..models import Event, Snapshot
 from ..protocols import StorageHandle, Notifier, Stream
@@ -131,6 +132,19 @@ class SQLiteHandle(StorageHandle):
         Persist new events to the SQLite database in a transaction,
         atomically checking for the expected version.
         """
+        # Filter out duplicates within the batch first
+        if new_events:
+            seen_ids = set()
+            unique_new_events = []
+            for e in new_events:
+                if e.id:
+                    if e.id not in seen_ids:
+                        unique_new_events.append(e)
+                        seen_ids.add(e.id)
+                else:
+                    unique_new_events.append(e)  # Events without ids are always unique
+            new_events = unique_new_events
+            
         # Idempotency check must be done inside the transaction.
         idempotency_keys_to_check = [e.id for e in new_events if e.id]
         if idempotency_keys_to_check:
@@ -433,64 +447,53 @@ async def sqlite_read_adapter(conn: aiosqlite.Connection, stream_id: str) -> Asy
     yield handle
 
 
-from ..stream import StreamImpl
-
-
-class SQLiteStorage:
+@asynccontextmanager
+async def sqlite_stream_factory(config: Dict):
     """
     A factory for creating and managing streams that are backed by a SQLite database.
-    This class manages all database resources, including connection pools and notifiers.
+    This function is a Higher-Order Function that, when used as an async context
+    manager, yields an `open_stream` function for creating individual stream instances.
     """
-
-    def __init__(self, config: Dict):
-        self.config = config
-        self.notifiers: Dict[str, Notifier] = {}
-        self.notifier_connections: Dict[str, aiosqlite.Connection] = {}
-        self.write_connections: Dict[str, aiosqlite.Connection] = {}
-        self.read_connection_pools: Dict[str, asyncio.Queue] = {}
-        self.db_init_locks: Dict[str, asyncio.Lock] = {}
-        self.db_init_locks_creator_lock = asyncio.Lock()
-        self.write_locks: Dict[str, asyncio.Lock] = {}
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.cleanup()
+    notifiers: Dict[str, Notifier] = {}
+    notifier_connections: Dict[str, aiosqlite.Connection] = {}
+    write_connections: Dict[str, aiosqlite.Connection] = {}
+    read_connection_pools: Dict[str, asyncio.Queue] = {}
+    db_init_locks: Dict[str, asyncio.Lock] = {}
+    db_init_locks_creator_lock = asyncio.Lock()
+    write_locks: Dict[str, asyncio.Lock] = {}
 
     async def _initialize_db_resources(
-        self, db_key: str, db_connect_string: str, is_memory_db: bool
+        db_key: str, db_connect_string: str, is_memory_db: bool
     ):
         """Atomically initialize all database resources."""
-        if db_key in self.read_connection_pools:
+        if db_key in read_connection_pools:
             return
 
-        async with self.db_init_locks_creator_lock:
-            if db_key not in self.db_init_locks:
-                self.db_init_locks[db_key] = asyncio.Lock()
+        async with db_init_locks_creator_lock:
+            if db_key not in db_init_locks:
+                db_init_locks[db_key] = asyncio.Lock()
 
-        db_lock = self.db_init_locks[db_key]
+        db_lock = db_init_locks[db_key]
         async with db_lock:
-            if db_key in self.read_connection_pools:
+            if db_key in read_connection_pools:
                 return
 
-            polling_interval = self.config.get("polling_interval", 0.2)
+            polling_interval = config.get("polling_interval", 0.2)
             notifier_conn = await aiosqlite.connect(
                 db_connect_string, uri=is_memory_db
             )
             await notifier_conn.execute("PRAGMA journal_mode=WAL;")
             notifier = SQLiteNotifier(notifier_conn, polling_interval=polling_interval)
             await notifier.start()
-            self.notifiers[db_key] = notifier
-            self.notifier_connections[db_key] = notifier_conn
+            notifiers[db_key] = notifier
+            notifier_connections[db_key] = notifier_conn
 
             write_conn = await aiosqlite.connect(db_connect_string, uri=is_memory_db)
             await write_conn.execute("PRAGMA journal_mode=WAL;")
-            self.write_connections[db_key] = write_conn
-            self.write_locks[db_key] = asyncio.Lock()
+            write_connections[db_key] = write_conn
+            write_locks[db_key] = asyncio.Lock()
 
-            # 3. Create the pool of read-only connections.
-            pool_size = self.config.get("pool_size", 10)
+            pool_size = config.get("pool_size", 10)
             pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue(
                 maxsize=pool_size
             )
@@ -502,28 +505,27 @@ class SQLiteStorage:
             for _ in range(pool_size):
                 conn = await aiosqlite.connect(read_connect_string, uri=True)
                 await pool.put(conn)
-            self.read_connection_pools[db_key] = pool
+            read_connection_pools[db_key] = pool
 
-    async def cleanup(self):
+    async def cleanup():
         """Stops all notifiers and closes all database connections."""
-        notifier_tasks = [notifier.stop() for notifier in self.notifiers.values()]
+        notifier_tasks = [notifier.stop() for notifier in notifiers.values()]
         await asyncio.gather(*notifier_tasks)
 
         connection_tasks = []
-        for conn in self.notifier_connections.values():
+        for conn in notifier_connections.values():
             connection_tasks.append(conn.close())
-        for conn in self.write_connections.values():
+        for conn in write_connections.values():
             connection_tasks.append(conn.close())
-        for pool in self.read_connection_pools.values():
+        for pool in read_connection_pools.values():
             while not pool.empty():
                 conn = await pool.get()
                 connection_tasks.append(conn.close())
-
         await asyncio.gather(*connection_tasks)
 
     @asynccontextmanager
-    async def open_stream(self, stream_id: str) -> AsyncIterable[Stream]:
-        db_path = self.config.get("db_path")
+    async def open_stream(stream_id: str) -> AsyncIterable[Stream]:
+        db_path = config.get("db_path")
         if not db_path:
             raise ValueError("`db_path` must be provided in the configuration.")
 
@@ -536,18 +538,23 @@ class SQLiteStorage:
             db_key = db_path
             db_connect_string = db_path
 
-        await self._initialize_db_resources(db_key, db_connect_string, is_memory_db)
+        await _initialize_db_resources(db_key, db_connect_string, is_memory_db)
 
         handle = SQLiteStorageHandle(
             stream_id=stream_id,
-            write_conn=self.write_connections[db_key],
-            write_lock=self.write_locks[db_key],
-            read_pool=self.read_connection_pools[db_key],
+            write_conn=write_connections[db_key],
+            write_lock=write_locks[db_key],
+            read_pool=read_connection_pools[db_key],
         )
         stream = StreamImpl(
             stream_id=stream_id,
             handle=handle,
-            notifier=self.notifiers[db_key],
+            notifier=notifiers[db_key],
         )
         await stream._async_init()
         yield stream
+
+    try:
+        yield open_stream
+    finally:
+        await cleanup()

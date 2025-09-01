@@ -1,3 +1,3 @@
-from .sqlite import SQLiteStorage
+from .sqlite import sqlite_stream_factory
 
-__all__ = ["SQLiteStorage"]
+__all__ = ["sqlite_stream_factory"]
