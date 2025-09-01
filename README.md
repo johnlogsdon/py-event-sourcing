@@ -43,12 +43,13 @@ from datetime import datetime
 from event_sourcing_v2 import sqlite_stream_factory, Event
 
 async def main():
-    # Using an empty config defaults to a non-persistent, in-memory database.
-    # For persistence, provide a file path: {"db_path": "my_events.db"}
-    config = {}
+    # To use a persistent file-based database:
+    # db_path = "my_events.db"
+    # To use a non-persistent, in-memory database:
+    db_path = ":memory:"
 
-    # The stream_factory is an async context manager that handles resource setup and teardown.
-    async with sqlite_stream_factory(config) as open_stream:
+    # The factory is an async context manager that handles all resources.
+    async with sqlite_stream_factory(db_path) as open_stream:
         stream_id = "my_first_stream"
 
         # Write an event

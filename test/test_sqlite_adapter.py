@@ -7,21 +7,20 @@ from event_sourcing_v2.adaptors.sqlite import (
     sqlite_stream_factory,
     sqlite_open_adapter,
 )
+import tempfile
+import os
 
 
 @fixture
-async def storage_factory():
+async def open_stream():
     """
-    Provides a SQLiteStorage instance with a clean in-memory database for each test function.
+    Provides a factory with a clean, file-based database for each test function,
+    ensuring complete isolation.
     """
-    config = {"db_path": ":memory:"}
-    async with sqlite_stream_factory(config) as factory:
-        yield factory
-
-
-@fixture
-async def open_stream(storage_factory):
-    yield storage_factory
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.db")
+        async with sqlite_stream_factory(db_path) as factory:
+            yield factory
 
 
 @pytest.mark.asyncio

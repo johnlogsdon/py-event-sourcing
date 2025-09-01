@@ -53,7 +53,6 @@ async def run_benchmark():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "benchmark.db")
-        config = {"db_path": db_path}
 
         print(f"--- Running benchmark with {num_events} events ---")
 
@@ -75,7 +74,7 @@ async def run_benchmark():
                 )
             event_batches.append(events_to_write)
 
-        async with sqlite_stream_factory(config) as open_stream:
+        async with sqlite_stream_factory(db_path) as open_stream:
             async with open_stream(stream_id) as stream:
                 lock = asyncio.Lock()
                 tasks = []

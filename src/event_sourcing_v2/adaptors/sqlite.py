@@ -442,7 +442,13 @@ async def sqlite_read_adapter(conn: aiosqlite.Connection, stream_id: str) -> Asy
 
 
 @asynccontextmanager
-async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
+async def sqlite_stream_factory(
+    db_path: str,
+    *,
+    cache_size_kib: int = -16384,
+    polling_interval: float = 0.2,
+    pool_size: int = 10,
+) -> AsyncIterable[Stream]:
     """
     A factory for creating and managing streams that are backed by a SQLite database.
     This function is a Higher-Order Function that, when used as an async context
@@ -472,14 +478,15 @@ async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
             if db_key in read_connection_pools:
                 return
 
-            cache_size_kib = config.get("cache_size_kib", -16384)  # Default to 16MB
-            polling_interval = config.get("polling_interval", 0.2)
+            # cache_size_kib = config.get("cache_size_kib", -16384)  # Default to 16MB
+            # polling_interval = config.get("polling_interval", 0.2)
             notifier_conn = await aiosqlite.connect(
                 db_connect_string, uri=is_memory_db
             )
             await notifier_conn.execute("PRAGMA journal_mode=WAL;")
             await notifier_conn.execute("PRAGMA synchronous = NORMAL;")
             await notifier_conn.execute(f"PRAGMA cache_size = {cache_size_kib};")
+            await notifier_conn.execute("PRAGMA busy_timeout = 5000;")
             notifier = SQLiteNotifier(notifier_conn, polling_interval=polling_interval)
             await notifier.start()
             notifiers[db_key] = notifier
@@ -489,10 +496,11 @@ async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
             await write_conn.execute("PRAGMA journal_mode=WAL;")
             await write_conn.execute("PRAGMA synchronous = NORMAL;")
             await write_conn.execute(f"PRAGMA cache_size = {cache_size_kib};")
+            await write_conn.execute("PRAGMA busy_timeout = 5000;")
             write_connections[db_key] = write_conn
             write_locks[db_key] = asyncio.Lock()
 
-            pool_size = config.get("pool_size", 10)
+            # pool_size = config.get("pool_size", 10)
             pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue(
                 maxsize=pool_size
             )
@@ -504,6 +512,7 @@ async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
             for _ in range(pool_size):
                 conn = await aiosqlite.connect(read_connect_string, uri=True)
                 await conn.execute(f"PRAGMA cache_size = {cache_size_kib};")
+                await conn.execute("PRAGMA busy_timeout = 5000;")
                 await pool.put(conn)
             read_connection_pools[db_key] = pool
 
@@ -525,7 +534,7 @@ async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
 
     @asynccontextmanager
     async def open_stream(stream_id: str) -> AsyncIterable[Stream]:
-        db_path = config.get("db_path")
+        # db_path = config.get("db_path")
         if not db_path:
             raise ValueError("`db_path` must be provided in the configuration.")
 
