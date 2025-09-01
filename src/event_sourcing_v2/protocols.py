@@ -11,7 +11,7 @@ from typing import Protocol, AsyncIterable, List, Set, Dict, Any
 import asyncio
 from datetime import datetime
 
-from .models import Event, Snapshot # Import Snapshot
+from .models import CandidateEvent, StoredEvent, Snapshot # Import Snapshot
 
 class StorageHandle(Protocol):
     """
@@ -20,7 +20,7 @@ class StorageHandle(Protocol):
     """
     version: int
 
-    async def sync(self, new_events: List[Event], expected_version: int):
+    async def sync(self, new_events: List[CandidateEvent], expected_version: int):
         """
         Atomically persists a list of new events.
 
@@ -52,7 +52,7 @@ class StorageHandle(Protocol):
         """
         ...
 
-    async def get_events(self, start_version: int = 0) -> AsyncIterable[Event]:
+    async def get_events(self, start_version: int = 0) -> AsyncIterable[StoredEvent]:
         """
         Retrieves events from the storage starting from a given version.
 
@@ -118,7 +118,7 @@ class Notifier(Protocol):
         """
         ...
 
-    async def subscribe(self, stream_id: str) -> asyncio.Queue[Event]:
+    async def subscribe(self, stream_id: str) -> asyncio.Queue[StoredEvent]:
         """
         Subscribes to a stream to receive notifications of new events.
 
@@ -130,7 +130,7 @@ class Notifier(Protocol):
         """
         ...
 
-    async def unsubscribe(self, stream_id: str, queue: asyncio.Queue[Event]):
+    async def unsubscribe(self, stream_id: str, queue: asyncio.Queue[StoredEvent]):
         """
         Unsubscribes a queue from a stream's notifications.
 
@@ -149,7 +149,7 @@ class Stream(Protocol):
     version: int
     stream_id: str
 
-    async def write(self, events: List[Event], expected_version: int = -1) -> int:
+    async def write(self, events: List[CandidateEvent], expected_version: int = -1) -> int:
         """
         Appends a list of events to the stream atomically.
 
@@ -198,7 +198,7 @@ class Stream(Protocol):
         """
         ...
 
-    async def read(self, from_version: int = 0) -> AsyncIterable[Event]:
+    async def read(self, from_version: int = 0) -> AsyncIterable[StoredEvent]:
         """
         Returns an async generator that yields historical events from the stream.
 
@@ -211,7 +211,7 @@ class Stream(Protocol):
         """
         ...
 
-    async def watch(self, from_version: int | None = None) -> AsyncIterable[Event]:
+    async def watch(self, from_version: int | None = None) -> AsyncIterable[StoredEvent]:
         """
         Returns an async generator that yields historical events and then live events.
 

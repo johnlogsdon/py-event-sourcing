@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 import functools
 
-from event_sourcing_v2 import Event
+from event_sourcing_v2 import CandidateEvent, StoredEvent
 from event_sourcing_v2.adaptors.sqlite import sqlite_stream_factory
 
 
@@ -14,7 +14,7 @@ class CounterState:
     def __init__(self):
         self.count = 0
 
-    def apply(self, event: Event):
+    def apply(self, event: StoredEvent):
         if event.type == "Increment":
             self.count += 1
         elif event.type == "Decrement":
@@ -65,11 +65,10 @@ async def run_benchmark():
             events_to_write = []
             for j in range(i, i + batch_size):
                 events_to_write.append(
-                    Event(
+                    CandidateEvent(
                         type="Increment",
                         data=b"",
-                        timestamp=datetime.now(timezone.utc),
-                        id=f"event-{j}",
+                        idempotency_key=f"event-{j}",
                     )
                 )
             event_batches.append(events_to_write)
@@ -116,11 +115,10 @@ async def run_benchmark():
                 additional_events = []
                 for i in range(num_additional_events):
                     additional_events.append(
-                        Event(
+                        CandidateEvent(
                             type="Increment",
                             data=b"",
-                            timestamp=datetime.now(timezone.utc),
-                            id=f"event-{num_events + i}",
+                            idempotency_key=f"event-{num_events + i}",
                         )
                     )
                 await stream.write(additional_events)

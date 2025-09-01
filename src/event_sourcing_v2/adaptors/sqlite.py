@@ -17,8 +17,9 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from ..stream import StreamImpl
+import uuid
 
-from ..models import Event, Snapshot
+from ..models import CandidateEvent, StoredEvent, Snapshot
 from ..protocols import StorageHandle, Notifier, Stream
 
 
@@ -57,11 +58,11 @@ class SQLiteStorageHandle(StorageHandle):
         finally:
             await self.read_pool.put(conn)
 
-    async def sync(self, new_events: List[Event], expected_version: int):
+    async def sync(self, new_events: List[CandidateEvent], expected_version: int):
         """Persists new events using the dedicated write connection."""
         async with self.write_lock:
             async with sqlite_open_adapter(self.write_conn, self.stream_id) as handle:
-                new_version = await handle.sync(new_events, expected_version)
+                new_version = await handle.sync(self.stream_id, new_events, expected_version)
                 self.version = new_version
                 return new_version
 
@@ -70,7 +71,7 @@ class SQLiteStorageHandle(StorageHandle):
         handle = SQLiteHandle(self.write_conn, self.stream_id)
         return await handle.find_existing_ids(event_ids)
 
-    async def get_events(self, start_version: int = 0) -> AsyncIterable[Event]:
+    async def get_events(self, start_version: int = 0) -> AsyncIterable[StoredEvent]:
         """Gets events using a read connection."""
         conn = await self.read_pool.get()
         try:
@@ -121,7 +122,7 @@ class SQLiteHandle(StorageHandle):
             row = await cursor.fetchone()
             self.version = row[0] if row and row[0] is not None else 0
 
-    async def sync(self, new_events: List[Event], expected_version: int):
+    async def sync(self, stream_id: str, new_events: List[CandidateEvent], expected_version: int):
         """
         Persist new events to the SQLite database in a transaction,
         atomically checking for the expected version.
@@ -131,19 +132,19 @@ class SQLiteHandle(StorageHandle):
             seen_ids = set()
             unique_new_events = []
             for e in new_events:
-                if e.id:
-                    if e.id not in seen_ids:
+                if e.idempotency_key:
+                    if e.idempotency_key not in seen_ids:
                         unique_new_events.append(e)
-                        seen_ids.add(e.id)
+                        seen_ids.add(e.idempotency_key)
                 else:
-                    unique_new_events.append(e)  # Events without ids are always unique
+                    unique_new_events.append(e)
             new_events = unique_new_events
             
         # Idempotency check must be done inside the transaction.
-        idempotency_keys_to_check = [e.id for e in new_events if e.id]
+        idempotency_keys_to_check = [e.idempotency_key for e in new_events if e.idempotency_key]
         if idempotency_keys_to_check:
             existing_ids = await self.find_existing_ids(idempotency_keys_to_check)
-            new_events = [e for e in new_events if e.id not in existing_ids]
+            new_events = [e for e in new_events if e.idempotency_key not in existing_ids]
 
         try:
             # Use a savepoint to manage the transaction within the shared connection.
@@ -167,24 +168,31 @@ class SQLiteHandle(StorageHandle):
                 )
 
             # 3. Filter out events that have already been persisted
-            idempotency_keys_to_check = [e.id for e in new_events if e.id]
+            idempotency_keys_to_check = [e.idempotency_key for e in new_events if e.idempotency_key]
             if idempotency_keys_to_check:
                 existing_ids = await self.find_existing_ids(idempotency_keys_to_check)
-                new_events = [e for e in new_events if e.id not in existing_ids]
+                new_events = [e for e in new_events if e.idempotency_key not in existing_ids]
 
             # 4. Insert new events if any
             if new_events:
-                # Assign versions to new events
+                now = datetime.utcnow()
+                events_to_insert = []
                 for i, event in enumerate(new_events):
-                    event.version = current_version + i + 1
-
-                params = [
-                    (event.id, event.type, event.timestamp.isoformat(), json.dumps(event.metadata) if event.metadata else None, event.data, event.version)
-                    for event in new_events
-                ]
+                    events_to_insert.append(
+                        (
+                            stream_id,
+                            event.idempotency_key or str(uuid.uuid4()),
+                            event.type,
+                            now.isoformat(),
+                            json.dumps(event.metadata) if event.metadata else None,
+                            event.data,
+                            current_version + i + 1,
+                        )
+                    )
+                
                 await self.conn.executemany(
                     "INSERT INTO events (stream_id, idempotency_key, event_type, timestamp, metadata, data, version) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [(self.stream_id, *p) for p in params],
+                    events_to_insert,
                 )
 
             await self.conn.execute("RELEASE SAVEPOINT event_append")
@@ -207,17 +215,19 @@ class SQLiteHandle(StorageHandle):
                 existing_ids.add(row[0])
         return existing_ids
 
-    async def get_events(self, start_version: int = 0) -> AsyncIterable[Event]:
+    async def get_events(self, start_version: int = 0) -> AsyncIterable[StoredEvent]:
         """An async generator to stream events from the database for a given stream_id, starting from a specific version."""
         async with self.conn.execute(
-            "SELECT idempotency_key, event_type, timestamp, metadata, data, version FROM events WHERE stream_id = ? AND version > ? ORDER BY version",
+            "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events WHERE stream_id = ? AND version > ? ORDER BY version",
             (self.stream_id, start_version,),
         ) as cursor:
             async for row in cursor:
-                idempotency_key, event_type, timestamp_str, metadata_json, data_blob, version = row
+                sequence_id, stream_id, idempotency_key, event_type, timestamp_str, metadata_json, data_blob, version, event_id = row
                 try:
-                    yield Event(
-                        id=idempotency_key,
+                    yield StoredEvent(
+                        id=idempotency_key or str(event_id),
+                        stream_id=stream_id,
+                        sequence_id=sequence_id,
                         type=event_type,
                         timestamp=datetime.fromisoformat(timestamp_str),
                         metadata=json.loads(metadata_json) if metadata_json else None,
@@ -376,8 +386,10 @@ class SQLiteNotifier(Notifier):
                             version,
                         ) = row
                         try:
-                            event = Event(
-                                id=idempotency_key,
+                            event = StoredEvent(
+                                id=idempotency_key or str(_id),
+                                stream_id=stream_id,
+                                sequence_id=_id,
                                 type=event_type,
                                 timestamp=datetime.fromisoformat(ts),
                                 metadata=json.loads(meta) if meta else None,

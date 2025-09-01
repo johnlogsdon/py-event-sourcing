@@ -2,7 +2,7 @@ import pytest
 from pytest_asyncio import fixture
 import asyncio
 from datetime import datetime
-from event_sourcing_v2.models import Event, Snapshot
+from event_sourcing_v2.models import CandidateEvent, Snapshot
 from event_sourcing_v2.adaptors.sqlite import (
     sqlite_stream_factory,
     sqlite_open_adapter,
@@ -26,7 +26,7 @@ async def open_stream():
 @pytest.mark.asyncio
 async def test_write_single_event(open_stream):
     stream_id = "test_stream"
-    event = Event(type="TestEvent", data=b"some data", timestamp=datetime.now())
+    event = CandidateEvent(type="TestEvent", data=b"some data")
 
     async with open_stream(stream_id) as s:
         new_version = await s.write([event], expected_version=0)
@@ -43,8 +43,8 @@ async def test_write_single_event(open_stream):
 @pytest.mark.asyncio
 async def test_read_events(open_stream):
     stream_id = "test_stream"
-    event1 = Event(type="Event1", data=b"data1", timestamp=datetime.now())
-    event2 = Event(type="Event2", data=b"data2", timestamp=datetime.now())
+    event1 = CandidateEvent(type="Event1", data=b"data1")
+    event2 = CandidateEvent(type="Event2", data=b"data2")
 
     async with open_stream(stream_id) as s:
         await s.write([event1, event2], expected_version=0)
@@ -62,12 +62,12 @@ async def test_versioning(open_stream):
     async with open_stream(stream_id) as s:
         assert s.version == 0
         await s.write(
-            [Event(type="test", data=b"", timestamp=datetime.now())], expected_version=0
+            [CandidateEvent(type="test", data=b"")], expected_version=0
         )
         assert s.version == 1
 
         await s.write(
-            [Event(type="test", data=b"", timestamp=datetime.now())], expected_version=1
+            [CandidateEvent(type="test", data=b"")], expected_version=1
         )
         assert s.version == 2
 
@@ -77,7 +77,7 @@ async def test_versioning(open_stream):
 
         with pytest.raises(ValueError):
             await s.write(
-                [Event(type="test", data=b"", timestamp=datetime.now())],
+                [CandidateEvent(type="test", data=b"")],
                 expected_version=0,
             )
 
@@ -85,11 +85,10 @@ async def test_versioning(open_stream):
 @pytest.mark.asyncio
 async def test_idempotency(open_stream):
     stream_id = "test_stream"
-    event = Event(
+    event = CandidateEvent(
         type="idempotent-event",
         data=b"",
-        id="unique-event-1",
-        timestamp=datetime.now(),
+        idempotency_key="unique-event-1",
     )
     async with open_stream(stream_id) as s:
         await s.write([event, event])  # Write the same event twice
@@ -101,13 +100,13 @@ async def test_idempotency(open_stream):
 async def test_concurrency_control(open_stream):
     stream_id = "test_concurrency"
     async with open_stream(stream_id) as s1:
-        await s1.write([Event(type="init", data=b"", timestamp=datetime.now())])
+        await s1.write([CandidateEvent(type="init", data=b"")])
         assert s1.version == 1
 
         async with open_stream(stream_id) as s2:
             assert s2.version == 1
             await s2.write(
-                [Event(type="write-by-s2", data=b"", timestamp=datetime.now())],
+                [CandidateEvent(type="write-by-s2", data=b"")],
                 expected_version=1,
             )
             assert s2.version == 2
@@ -116,8 +115,8 @@ async def test_concurrency_control(open_stream):
             with pytest.raises(ValueError, match="Concurrency conflict"):
                 await s1.write(
                     [
-                        Event(
-                            type="write-by-s1", data=b"", timestamp=datetime.now()
+                        CandidateEvent(
+                            type="write-by-s1", data=b""
                         )
                     ],
                     expected_version=1,
@@ -129,7 +128,7 @@ async def test_snapshots(open_stream):
     stream_id = "test_snapshots"
     async with open_stream(stream_id) as s:
         await s.write(
-            [Event(type="event1", data=b"", timestamp=datetime.now())] * 10
+            [CandidateEvent(type="event1", data=b"")] * 10
         )
         assert s.version == 10
         snapshot_data = b"snapshot_state"
@@ -151,7 +150,7 @@ async def test_notifier_live_event(open_stream):
         await asyncio.sleep(0.01)
 
         await s.write(
-            [Event(type="live-event", data=b"live-data", timestamp=datetime.now())]
+            [CandidateEvent(type="live-event", data=b"live-data")]
         )
 
         # The watcher should receive the event
@@ -167,7 +166,7 @@ async def test_notifier_replay(open_stream):
     async with open_stream(stream_id) as s:
         # Write an event *before* watching
         await s.write(
-            [Event(type="replay-event", data=b"replay-data", timestamp=datetime.now())]
+            [CandidateEvent(type="replay-event", data=b"replay-data")]
         )
         assert s.version == 1
 
@@ -179,7 +178,7 @@ async def test_notifier_replay(open_stream):
         watch_task = asyncio.create_task(anext(s.watch(from_version=s.version)))
         await asyncio.sleep(0.01)
         await s.write(
-            [Event(type="live-event", data=b"live-data-2", timestamp=datetime.now())]
+            [CandidateEvent(type="live-event", data=b"live-data-2")]
         )
         live_event = await asyncio.wait_for(watch_task, timeout=1)
 
@@ -197,10 +196,9 @@ async def test_concurrent_writes_different_streams(open_stream):
             for _ in range(num_events):
                 await s.write(
                     [
-                        Event(
+                        CandidateEvent(
                             type="concurrent-event",
                             data=b"",
-                            timestamp=datetime.now(),
                         )
                     ]
                 )

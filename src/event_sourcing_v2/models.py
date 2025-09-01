@@ -3,17 +3,26 @@ This module defines the core data models for the event sourcing system using Pyd
 These models serve as the data transfer objects (DTOs) and ensure that all
 event and snapshot data is well-structured and validated.
 """
-from pydantic import BaseModel
+import uuid
+from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-class Event(BaseModel):
-    id: str | None = None  # Optional idempotency key
+class CandidateEvent(BaseModel):
+    idempotency_key: Optional[str] = None
     type: str
-    data: bytes  # Serialized event data
+    data: bytes
+    metadata: Optional[Dict[str, Any]] = None
+
+class StoredEvent(BaseModel):
+    id: str
+    stream_id: str
+    sequence_id: int
+    version: int
     timestamp: datetime
-    metadata: Dict[str, Any] | None = None  # Optional, for other contextual data
-    version: int = 0 # Add version to Event model
+    type: str
+    data: bytes
+    metadata: Optional[Dict[str, Any]] = None
 
 class Snapshot(BaseModel):
     stream_id: str

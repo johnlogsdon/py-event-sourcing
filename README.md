@@ -40,7 +40,7 @@ Here’s a quick example of writing to and reading from a stream.
 ```python
 import asyncio
 from datetime import datetime
-from event_sourcing_v2 import sqlite_stream_factory, Event
+from event_sourcing_v2 import sqlite_stream_factory, CandidateEvent
 
 async def main():
     # To use a persistent file-based database:
@@ -54,15 +54,19 @@ async def main():
 
         # Write an event
         async with open_stream(stream_id) as stream:
-            event = Event(type="UserRegistered", data=b'{"user": "Alice"}', timestamp=datetime.now())
+            # Use CandidateEvent to create an event to be written.
+            # The timestamp and version are added by the system.
+            event = CandidateEvent(type="UserRegistered", data=b'{"user": "Alice"}')
             await stream.write([event])
             print(f"Event written. Stream version is now {stream.version}.")
 
         # Read the event back
         async with open_stream(stream_id) as stream:
+            # Events read from the stream are StoredEvent objects, 
+            # which include system-set fields like version and timestamp.
             all_events = [e async for e in stream.read()]
             print(f"Read {len(all_events)} event(s) from the stream.")
-            print(f"  -> Event type: {all_events[0].type}, Data: {all_events[0].data.decode()}")
+            print(f"  -> Event type: {all_events[0].type}, Data: {all_events[0].data.decode()}, Version: {all_events[0].version}")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -70,50 +74,9 @@ if __name__ == "__main__":
 
 ## Full Examples
 
-For more detailed examples covering snapshots, watching for live events, and state reconstruction, please see the fully commented example file: `examples/basic_usage.py`.
+For more detailed examples covering snapshots, watching for live events, and state reconstruction, please see the fully commented example file: `basic_usage.py`.
 
 ## Testing
 
 Run the test suite:
-```bash
-uv run pytest
 ```
-
-The test suite in `test/test_core.py` also serves as a comprehensive set of usage examples.
-
-## Performance Benchmarks
-
-To see how the library performs under heavy load you can run the benchmark script:
-
-```bash
-uv run python benchmark.py
-```
-
-**Example Output:**
-```text
---- Running benchmark with 1000000 events ---
-Writing 1000000 events...
-Finished writing 1000000 events in 10.28 seconds.
-Write throughput: 97,273.29 events/sec.
-
---- Benchmark 1: Reconstructing state from all events ---
-Reconstructed state (all events): Counter is 1000000.
-Time to reconstruct from all events: 2.49 seconds.
-Read throughput: 401,291.20 events/sec.
-
---- Benchmark 2: Reconstructing state using snapshot ---
-Creating snapshot...
-Snapshot created.
-Writing 100 additional events...
-Finished writing 100 additional events.
-State restored from snapshot at version 1000000.
-Reconstructed state (with snapshot): Counter is 1000100.
-Time to reconstruct with snapshot: 0.00 seconds.
-```
-
-
-## Further Reading
-
-*   **[Core Concepts (`concepts.md`)](./concepts.md)**: For a detailed explanation of the event sourcing principles and design choices behind this library.
-*   **
-## Contributing

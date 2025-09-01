@@ -16,7 +16,7 @@ from typing import (
 )
 from datetime import datetime, timezone
 
-from .models import Event, Snapshot
+from .models import CandidateEvent, StoredEvent, Snapshot
 from .protocols import Notifier, StorageHandle, Stream
 
 class StreamImpl(Stream):
@@ -31,9 +31,9 @@ class StreamImpl(Stream):
         await self.handle._async_init()
         self.version = self.handle.version
 
-    async def write(self, events: List[Event], expected_version: int = -1) -> int:
-        if not all(isinstance(e, Event) for e in events):
-            raise TypeError("All items in events list must be Event objects")
+    async def write(self, events: List[CandidateEvent], expected_version: int = -1) -> int:
+        if not all(isinstance(e, CandidateEvent) for e in events):
+            raise TypeError("All items in events list must be CandidateEvent objects")
 
         effective_expected_version = (
             self.version if expected_version == -1 else expected_version
@@ -66,11 +66,11 @@ class StreamImpl(Stream):
                 return snapshot
         return None
 
-    async def read(self, from_version: int = 0) -> AsyncIterable[Event]:
+    async def read(self, from_version: int = 0) -> AsyncIterable[StoredEvent]:
         async for event in self.handle.get_events(start_version=from_version):
             yield event
 
-    async def watch(self, from_version: int | None = None) -> AsyncIterable[Event]:
+    async def watch(self, from_version: int | None = None) -> AsyncIterable[StoredEvent]:
         effective_from_version = self.version if from_version is None else from_version
         queue = await self.notifier.subscribe(self.stream_id)
         last_yielded_version = effective_from_version

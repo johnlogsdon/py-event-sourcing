@@ -4,7 +4,7 @@ import tempfile
 import json
 from datetime import datetime
 
-from event_sourcing_v2 import sqlite_stream_factory, Event
+from event_sourcing_v2 import sqlite_stream_factory, CandidateEvent, StoredEvent
 
 
 # This is a simple state model for our example.
@@ -13,7 +13,7 @@ class CounterState:
     def __init__(self):
         self.count = 0
 
-    def apply(self, event: Event):
+    def apply(self, event: StoredEvent):
         """Applies an event to modify the state."""
         if event.type == "Increment":
             self.count += 1
@@ -48,9 +48,9 @@ async def run_examples():
             async with open_stream(stream_id) as stream:
                 # Create some events. `id` is used for idempotency.
                 events_to_write = [
-                    Event(type="Increment", data=b"", timestamp=datetime.now(), id="event-1"),
-                    Event(type="Increment", data=b"", timestamp=datetime.now(), id="event-2"),
-                    Event(type="Decrement", data=b"", timestamp=datetime.now(), id="event-3"),
+                    CandidateEvent(type="Increment", data=b"", idempotency_key="event-1"),
+                    CandidateEvent(type="Increment", data=b"", idempotency_key="event-2"),
+                    CandidateEvent(type="Decrement", data=b"", idempotency_key="event-3"),
                 ]
                 # Write events to the stream. This is an atomic operation.
                 new_version = await stream.write(events_to_write)
@@ -111,8 +111,8 @@ async def run_examples():
             async with open_stream(stream_id) as writer_stream:
                 await writer_stream.write(
                     [
-                        Event(type="Increment", data=b"", timestamp=datetime.now(), id="event-4"),
-                        Event(type="Increment", data=b"", timestamp=datetime.now(), id="event-5"),
+                        CandidateEvent(type="Increment", data=b"", idempotency_key="event-4"),
+                        CandidateEvent(type="Increment", data=b"", idempotency_key="event-5"),
                     ]
                 )
             await asyncio.wait_for(watch_task, timeout=5)
@@ -131,7 +131,7 @@ async def run_examples():
                 )
                 await stream.write(
                     [
-                        Event(type="Increment", data=b"", timestamp=datetime.now(), id="event-6")
+                        CandidateEvent(type="Increment", data=b"", idempotency_key="event-6")
                     ]
                 )
 
