@@ -43,13 +43,17 @@ class SQLiteStorageHandle(StorageHandle):
 
     async def _async_init(self):
         """Initializes the stream's version from a read connection."""
+        async with self._read_handle() as handle:
+            self.version = handle.version
+
+    @asynccontextmanager
+    async def _read_handle(self) -> AsyncIterator[StorageHandle]:
+        """Provides a handle with a connection from the read pool."""
         conn = await self.read_pool.get()
         try:
-            async with conn.execute(
-                "SELECT MAX(version) FROM events WHERE stream_id = ?", (self.stream_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                self.version = row[0] if row and row[0] is not None else 0
+            handle = SQLiteHandle(conn, self.stream_id)
+            await handle._async_init()
+            yield handle
         finally:
             await self.read_pool.put(conn)
 
@@ -79,13 +83,8 @@ class SQLiteStorageHandle(StorageHandle):
 
     async def get_last_timestamp(self) -> datetime | None:
         """Gets the last timestamp using a read connection."""
-        conn = await self.read_pool.get()
-        try:
-            handle = SQLiteHandle(conn, self.stream_id)
-            await handle._async_init()
+        async with self._read_handle() as handle:
             return await handle.get_last_timestamp()
-        finally:
-            await self.read_pool.put(conn)
 
     async def save_snapshot(self, snapshot: Snapshot):
         """Saves a snapshot using the dedicated write connection."""
@@ -98,13 +97,8 @@ class SQLiteStorageHandle(StorageHandle):
         self, stream_id: str, projection_name: str = "default"
     ) -> Snapshot | None:
         """Loads a snapshot using a read connection."""
-        conn = await self.read_pool.get()
-        try:
-            handle = SQLiteHandle(conn, self.stream_id)
-            await handle._async_init()
+        async with self._read_handle() as handle:
             return await handle.load_latest_snapshot(stream_id, projection_name)
-        finally:
-            await self.read_pool.put(conn)
 
 
 class SQLiteHandle(StorageHandle):
@@ -478,11 +472,14 @@ async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
             if db_key in read_connection_pools:
                 return
 
+            cache_size_kib = config.get("cache_size_kib", -16384)  # Default to 16MB
             polling_interval = config.get("polling_interval", 0.2)
             notifier_conn = await aiosqlite.connect(
                 db_connect_string, uri=is_memory_db
             )
             await notifier_conn.execute("PRAGMA journal_mode=WAL;")
+            await notifier_conn.execute("PRAGMA synchronous = NORMAL;")
+            await notifier_conn.execute(f"PRAGMA cache_size = {cache_size_kib};")
             notifier = SQLiteNotifier(notifier_conn, polling_interval=polling_interval)
             await notifier.start()
             notifiers[db_key] = notifier
@@ -490,6 +487,8 @@ async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
 
             write_conn = await aiosqlite.connect(db_connect_string, uri=is_memory_db)
             await write_conn.execute("PRAGMA journal_mode=WAL;")
+            await write_conn.execute("PRAGMA synchronous = NORMAL;")
+            await write_conn.execute(f"PRAGMA cache_size = {cache_size_kib};")
             write_connections[db_key] = write_conn
             write_locks[db_key] = asyncio.Lock()
 
@@ -504,6 +503,7 @@ async def sqlite_stream_factory(config: Dict) -> AsyncIterable[Stream]:
             )
             for _ in range(pool_size):
                 conn = await aiosqlite.connect(read_connect_string, uri=True)
+                await conn.execute(f"PRAGMA cache_size = {cache_size_kib};")
                 await pool.put(conn)
             read_connection_pools[db_key] = pool
 
