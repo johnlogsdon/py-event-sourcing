@@ -27,6 +27,10 @@ class SQLiteNotifier(Notifier):
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
+    @property
+    def conn(self) -> aiosqlite.Connection:
+        return self._conn
+
     async def _create_schema(self):
         # Schema management is centralized here. The first notifier created for a
         # given database file is responsible for ensuring the necessary tables
