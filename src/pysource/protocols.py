@@ -7,7 +7,7 @@ extensible, allowing for future support of different databases (e.g., PostgreSQL
 or notification systems (e.g., Redis Pub/Sub) without changing the `Stream` class.
 This is a key principle of the library's design.
 """
-from typing import Protocol, AsyncIterable, List, Set, Dict, Any
+from typing import Protocol, AsyncIterable, List, Set, Dict, Any, Union
 import asyncio
 from datetime import datetime
 
@@ -18,9 +18,14 @@ class StorageHandle(Protocol):
     Defines the contract that all storage adapters must implement.
     The Stream class interacts with this protocol, not a concrete implementation.
     """
-    version: int
 
-    async def sync(self, new_events: List[CandidateEvent], expected_version: int):
+    async def get_version(self) -> int:
+        """
+        Retrieves the latest version number for the stream.
+        """
+        ...
+
+    async def sync(self, new_events: List[CandidateEvent], expected_version: int) -> int:
         """
         Atomically persists a list of new events.
 
@@ -31,6 +36,9 @@ class StorageHandle(Protocol):
             new_events: A list of `Event` objects to persist.
             expected_version: The version the stream is expected to be at. The
                 write should fail if the actual version does not match.
+
+        Returns:
+            The new version number of the stream after the write operation.
 
         Raises:
             ValueError: If the `expected_version` does not match the current
@@ -74,12 +82,15 @@ class StorageHandle(Protocol):
         """
         ...
 
-    async def save_snapshot(self, snapshot: Snapshot):
+    async def save_snapshot(self, snapshot: Snapshot) -> int:
         """
         Saves a snapshot of a stream's state.
 
         Args:
             snapshot: The `Snapshot` object to save.
+        
+        Returns:
+            The version number of the saved snapshot.
         """
         ...
 
@@ -149,7 +160,7 @@ class Stream(Protocol):
     version: int
     stream_id: str
 
-    async def write(self, events: List[CandidateEvent], expected_version: int = -1) -> int:
+    async def write(self, events: Union[CandidateEvent, List[CandidateEvent]], expected_version: int = -1) -> int:
         """
         Appends a list of events to the stream atomically.
 

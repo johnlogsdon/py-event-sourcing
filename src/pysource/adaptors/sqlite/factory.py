@@ -124,7 +124,7 @@ async def sqlite_stream_factory(
         )
         stream = StreamImpl(
             stream_id=stream_id,
-            handle=handle,
+            storage_handle=handle,
             notifier=notifiers[db_key],
         )
         await stream._async_init()
