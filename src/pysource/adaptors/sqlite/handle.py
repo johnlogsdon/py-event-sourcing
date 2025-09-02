@@ -8,8 +8,9 @@ from datetime import datetime
 import asyncio
 import uuid
 
-from pysource.models import CandidateEvent, StoredEvent, Snapshot
+from pysource.models import CandidateEvent, StoredEvent, Snapshot, EventFilter
 from pysource.protocols import StorageHandle
+from .filter_parser import parse_event_filter_to_sql
 
 
 # -----------------------------------------------------------------------------
@@ -113,16 +114,39 @@ async def _find_existing_ids(conn: aiosqlite.Connection, stream_id: str, event_i
     return existing_ids
 
 
-async def _get_events(conn: aiosqlite.Connection, stream_id: str, start_version: int = 0) -> AsyncIterable[StoredEvent]:
+async def _get_events(
+    conn: aiosqlite.Connection,
+    stream_id: str,
+    start_version: int = 0,
+    event_filter: EventFilter | None = None,
+) -> AsyncIterable[StoredEvent]:
     """An async generator to stream events from the database for a given stream_id."""
+    
+    params: list = []
+    
     if stream_id == "@all":
-        query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events WHERE id > ? ORDER BY id"
-        params = (start_version,)
+        base_query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events"
+        conditions = ["id > ?"]
+        params.append(start_version)
     else:
-        query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events WHERE stream_id = ? AND version > ? ORDER BY version"
-        params = (stream_id, start_version,)
+        base_query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events"
+        conditions = ["stream_id = ?", "version > ?"]
+        params.extend([stream_id, start_version])
 
-    async with conn.execute(query, params) as cursor:
+    if event_filter:
+        filter_clause, filter_params = parse_event_filter_to_sql(event_filter)
+        if filter_clause:
+            # The generated clause includes "WHERE", so we remove it and join with "AND"
+            conditions.append(filter_clause.replace("WHERE ", ""))
+            params.extend(filter_params)
+            
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    
+    order_by = "ORDER BY id" if stream_id == "@all" else "ORDER BY version"
+
+    final_query = f"{base_query} {where_clause} {order_by}"
+
+    async with conn.execute(final_query, tuple(params)) as cursor:
         async for row in cursor:
             sequence_id, stream_id_db, idempotency_key, event_type, timestamp_str, metadata_json, data_blob, version, event_id = row
             try:
@@ -231,10 +255,14 @@ class SQLiteStorageHandle(StorageHandle):
         # but the stream logic calls it beforehand for a pre-check.
         return await _find_existing_ids(self.write_conn, self.stream_id, event_ids)
 
-    async def get_events(self, start_version: int = 0) -> AsyncIterable[StoredEvent]:
+    async def get_events(
+        self, start_version: int = 0, event_filter: EventFilter | None = None
+    ) -> AsyncIterable[StoredEvent]:
         """Gets events using a read connection."""
         async with self._get_read_conn() as conn:
-            async for event in _get_events(conn, self.stream_id, start_version):
+            async for event in _get_events(
+                conn, self.stream_id, start_version, event_filter
+            ):
                 yield event
 
     async def get_last_timestamp(self) -> datetime | None:

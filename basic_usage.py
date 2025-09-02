@@ -3,7 +3,14 @@ import os
 import tempfile
 import json
 
-from pysource import sqlite_stream_factory, CandidateEvent, StoredEvent
+from pysource import (
+    sqlite_stream_factory,
+    CandidateEvent,
+    StoredEvent,
+    EventFilter,
+    EqualsClause,
+    LikeClause,
+)
 
 
 # This is a simple state model for our example.
@@ -147,6 +154,25 @@ async def run_examples():
                         state.apply(event)
                     print(f"Final reconstructed state: Counter is {state.count}.")
                     assert state.count == 4  # 3 (from snapshot) + 1 (event 6)
+            
+            print("\n--- Example 5: Filtering Events from the @all Stream ---")
+            # The @all stream allows reading events from all streams.
+            # We can use filters to select only the events we are interested in.
+            async with open_stream("@all") as all_stream:
+                # Let's find all "Increment" events from our specific stream
+                event_filter = EventFilter(clauses=[
+                    EqualsClause(field="stream_id", value=stream_id),
+                    EqualsClause(field="event_type", value="Increment"),
+                ])
+                
+                print(f"Reading all 'Increment' events for stream '{stream_id}':")
+                filtered_events = [e async for e in all_stream.read(event_filter=event_filter)]
+                
+                for event in filtered_events:
+                    print(f"  - Found event: stream={event.stream_id}, type={event.type}, version={event.version}")
+                
+                # We wrote 6 increment events in total (5 before snapshot, 1 after)
+                assert len(filtered_events) == 5
 
 
 if __name__ == "__main__":

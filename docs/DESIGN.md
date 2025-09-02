@@ -109,3 +109,49 @@ The library is designed to be extended with different storage backends. To creat
 3.  **Create a Factory Function**: Write your own factory function (e.g., `postgres_stream_factory`) that mirrors the role of `sqlite_stream_factory`. It would be responsible for managing connections to your database and injecting your new `PostgresStorageHandle` and `PostgresNotifier` into the `StreamImpl`.
 
 By adhering to these protocols, your new storage adapter will seamlessly integrate with the core `StreamImpl` logic without requiring any changes to it.
+
+The `open_stream` function returned by the factory is the primary interface for all stream operations. It is an `async context manager` that handles the acquisition and release of necessary resources (like database connections) for a specific `stream_id`.
+
+```python
+async with sqlite_stream_factory("/path/to/my.db") as open_stream:
+    async with open_stream("my_stream_id") as stream:
+        # Read, write, or watch events
+        await stream.write(...)
+```
+
+### Querying and Filtering
+
+The library provides a powerful filtering mechanism to read specific events from the `@all` stream. This is essential for building projectors and read models that only need to process a subset of all events in the system.
+
+Filtering is achieved by passing an `EventFilter` object to the `stream.read()` method. The filter is composed of one or more clauses, which are combined with `AND` logic.
+
+The following clause types are supported:
+- `EqualsClause`: `field = value`
+- `InClause`: `field IN (value1, value2, ...)`
+- `LikeClause`: `field LIKE 'value%'`
+
+You can filter on standard event fields (`stream_id`, `event_type`, `version`) and on nested fields within the `metadata` JSON object using dot notation.
+
+**Example:**
+
+Here is how you would read all `order_placed` events from streams starting with `customer-` where the metadata `region` is `EMEA`.
+
+```python
+from pysource import EventFilter, EqualsClause, LikeClause
+
+async with open_stream("@all") as s:
+    event_filter = EventFilter(clauses=[
+        LikeClause(field="stream_id", value="customer-%"),
+        EqualsClause(field="event_type", value="order_placed"),
+        EqualsClause(field="metadata.region", value="EMEA"),
+    ])
+    
+    filtered_events = [e async for e in s.read(event_filter=event_filter)]
+
+    for event in filtered_events:
+        print(f"Found matching event: {event.id}")
+```
+
+## Storage Layer
+
+The storage layer is defined by the `StorageHandle` protocol. This ensures that the core stream logic is completely decoupled from the database implementation. The library ships with a `SQLiteStorageHandle`, but other backends can be added by implementing this protocol.

@@ -17,7 +17,7 @@ from typing import (
 )
 from datetime import datetime, timezone
 
-from .models import CandidateEvent, StoredEvent, Snapshot
+from .models import CandidateEvent, StoredEvent, Snapshot, EventFilter
 from .protocols import Stream, StorageHandle, Notifier
 
 
@@ -102,8 +102,12 @@ class StreamImpl(Stream):
                 return snapshot
         return None
 
-    async def read(self, from_version: int = 0) -> AsyncIterable[StoredEvent]:
-        async for event in self.storage_handle.get_events(start_version=from_version):
+    async def read(
+        self, from_version: int = 0, event_filter: EventFilter | None = None
+    ) -> AsyncIterable[StoredEvent]:
+        async for event in self.storage_handle.get_events(
+            start_version=from_version, event_filter=event_filter
+        ):
             yield event
 
     async def watch(self, from_version: int | None = None) -> AsyncIterable[StoredEvent]:

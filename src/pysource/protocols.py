@@ -11,7 +11,7 @@ from typing import Protocol, AsyncIterable, List, Set, Dict, Any, Union
 import asyncio
 from datetime import datetime
 
-from .models import CandidateEvent, StoredEvent, Snapshot # Import Snapshot
+from .models import CandidateEvent, StoredEvent, Snapshot, EventFilter
 
 class StorageHandle(Protocol):
     """
@@ -60,7 +60,9 @@ class StorageHandle(Protocol):
         """
         ...
 
-    async def get_events(self, start_version: int = 0) -> AsyncIterable[StoredEvent]:
+    async def get_events(
+        self, start_version: int = 0, event_filter: EventFilter | None = None
+    ) -> AsyncIterable[StoredEvent]:
         """
         Retrieves events from the storage starting from a given version.
 
@@ -212,7 +214,9 @@ class Stream(Protocol):
         """
         ...
 
-    async def read(self, from_version: int = 0) -> AsyncIterable[StoredEvent]:
+    async def read(
+        self, from_version: int = 0, event_filter: EventFilter | None = None
+    ) -> AsyncIterable[StoredEvent]:
         """
         Returns an async generator that yields historical events from the stream.
 

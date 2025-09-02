@@ -1,0 +1,6 @@
+pydantic>=2.11.7
+aiosqlite
+
+[dev]
+pytest
+pytest-asyncio

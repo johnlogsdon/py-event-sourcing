@@ -1,7 +1,7 @@
 import pytest
 from pytest_asyncio import fixture
 import asyncio
-from pysource import CandidateEvent, sqlite_stream_factory
+from pysource import CandidateEvent, sqlite_stream_factory, EventFilter, EqualsClause, InClause, LikeClause
 import tempfile
 import os
 
@@ -207,3 +207,48 @@ async def test_concurrent_writes_different_streams(open_stream):
         assert s1.version == num_events_per_stream
     async with open_stream(stream_id_2) as s2:
         assert s2.version == num_events_per_stream
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_filtering(open_stream):
+    """
+    Tests the complete filtering functionality, from the stream's `read` method
+    down to the SQL query, on the @all stream.
+    """
+    # 1. Arrange: Write a diverse set of events
+    # Customer A events
+    async with open_stream("customer-1") as s:
+        await s.write(
+            CandidateEvent(type="order_placed", data=b"", metadata={"region": "EMEA", "value": 100})
+        )
+        await s.write(
+            CandidateEvent(type="order_shipped", data=b"", metadata={"region": "EMEA", "value": 100})
+        )
+    # Customer B events
+    async with open_stream("customer-2") as s:
+        await s.write(
+            CandidateEvent(type="order_placed", data=b"", metadata={"region": "APAC", "value": 250})
+        )
+    # Internal system events (should be filtered out)
+    async with open_stream("system-alerts") as s:
+        await s.write(
+            CandidateEvent(type="heartbeat", data=b"", metadata={"region": "EMEA"})
+        )
+
+    # 2. Act: Read from the @all stream with a specific filter
+    async with open_stream("@all") as s:
+        # We want all 'order_placed' events from 'customer' streams in the 'EMEA' region.
+        event_filter = EventFilter(clauses=[
+            LikeClause(field="stream_id", value="customer-%"),
+            EqualsClause(field="event_type", value="order_placed"),
+            EqualsClause(field="metadata.region", value="EMEA"),
+        ])
+        
+        filtered_events = [e async for e in s.read(event_filter=event_filter)]
+
+    # 3. Assert: Check that only the correct event was returned
+    assert len(filtered_events) == 1
+    event = filtered_events[0]
+    assert event.stream_id == "customer-1"
+    assert event.type == "order_placed"
+    assert event.metadata["region"] == "EMEA"

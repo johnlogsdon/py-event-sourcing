@@ -6,7 +6,7 @@ event and snapshot data is well-structured and validated.
 import uuid
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Literal, Union
 
 class CandidateEvent(BaseModel):
     idempotency_key: Optional[str] = None
@@ -32,3 +32,28 @@ class Snapshot(BaseModel):
     version: int
     state: bytes # Serialized state
     timestamp: datetime
+
+
+# -----------------------------------------------------------------------------
+# Event Filtering Models
+# -----------------------------------------------------------------------------
+
+class EqualsClause(BaseModel):
+    op: Literal["="] = "="
+    field: str
+    value: Any
+
+class InClause(BaseModel):
+    op: Literal["in"] = "in"
+    field: str
+    value: List[Any] = Field(..., min_length=1)
+
+class LikeClause(BaseModel):
+    op: Literal["like"] = "like"
+    field: str
+    value: str
+
+FilterClause = Union[EqualsClause, InClause, LikeClause]
+
+class EventFilter(BaseModel):
+    clauses: List[FilterClause]
