@@ -55,15 +55,16 @@ class SQLiteResourceManager:
                 "file:memdb_shared?mode=memory&cache=shared" if is_memory_db else db_path
             )
 
-            # Create Notifier and its connection
+            # Create Write Connection and initialize schema first
+            write_conn = await aiosqlite.connect(db_connect_string, uri=is_memory_db)
+            await self._configure_connection(write_conn, cache_size_kib)
+            await self._initialize_schema(write_conn)
+
+            # Now, create Notifier and its connection
             notifier_conn = await aiosqlite.connect(db_connect_string, uri=is_memory_db)
             await self._configure_connection(notifier_conn, cache_size_kib)
             notifier = SQLiteNotifier(notifier_conn, polling_interval=polling_interval)
             await notifier.start()
-
-            # Create Write Connection
-            write_conn = await aiosqlite.connect(db_connect_string, uri=is_memory_db)
-            await self._configure_connection(write_conn, cache_size_kib)
 
             # Create Read Pool
             pool: asyncio.Queue[aiosqlite.Connection] = asyncio.Queue(maxsize=pool_size)
@@ -84,6 +85,38 @@ class SQLiteResourceManager:
             )
             self._resources[db_key] = resources
             return resources
+
+    async def _initialize_schema(self, conn: aiosqlite.Connection):
+        """Creates the necessary tables and indexes if they don't exist."""
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stream_id TEXT NOT NULL,
+                idempotency_key TEXT,
+                event_type TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                metadata TEXT,
+                data BLOB,
+                version INTEGER NOT NULL,
+                UNIQUE(stream_id, version),
+                UNIQUE(stream_id, idempotency_key)
+            )
+        """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS snapshots (
+                stream_id TEXT NOT NULL,
+                projection_name TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                state BLOB NOT NULL,
+                timestamp TEXT NOT NULL,
+                PRIMARY KEY (stream_id, projection_name)
+            )
+        """
+        )
+        await conn.commit()
 
     async def _configure_connection(self, conn: aiosqlite.Connection, cache_size_kib: int):
         """Applies standard PRAGMA settings to a connection."""

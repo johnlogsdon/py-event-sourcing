@@ -64,47 +64,13 @@ class SQLiteNotifier(Notifier):
     def conn(self) -> aiosqlite.Connection:
         return self._conn
 
-    async def _create_schema(self):
-        # Schema management is centralized here. The first notifier created for a
-        # given database connection will ensure the schema is up to date.
-        await self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                stream_id TEXT NOT NULL,
-                idempotency_key TEXT,
-                event_type TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                metadata TEXT,
-                data BLOB,
-                version INTEGER NOT NULL,
-                UNIQUE(stream_id, version),
-                UNIQUE(stream_id, idempotency_key)
-            )
-        """
-        )
-        await self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS snapshots (
-                stream_id TEXT NOT NULL,
-                projection_name TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                state BLOB NOT NULL,
-                timestamp TEXT NOT NULL,
-                PRIMARY KEY (stream_id, projection_name)
-            )
-        """
-        )
-        await self._conn.commit()
-
     async def start(self):
         """Starts the background polling task."""
         async with self._lock:
-            await self._create_schema()
-            cursor = await self._conn.execute("SELECT MAX(id) FROM events")
-            row = await cursor.fetchone()
-            self._last_id = row[0] if row and row[0] is not None else 0
             if self._task is None:
+                cursor = await self._conn.execute("SELECT MAX(id) FROM events")
+                row = await cursor.fetchone()
+                self._last_id = row[0] if row and row[0] is not None else 0
                 self._task = asyncio.create_task(self._poll_for_changes())
                 logging.info(f"Notifier started, last_id={self._last_id}")
 
