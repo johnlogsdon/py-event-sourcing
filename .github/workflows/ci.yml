@@ -86,7 +86,7 @@ jobs:
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
     - name: Install build dependencies
-      run: uv sync --group lint  # Includes build tools
+      run: uv sync --group lint --group build  # Includes build tools
 
     - name: Build package
       run: uv build
