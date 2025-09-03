@@ -5,11 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.2] - 2025-09-03
+## [1.0.3] - 2025-09-03
 
 ### Fixed
-- Fixed broken relative links to CONCEPTS.md and DESIGN.md documentation in README
-- Updated links to use absolute GitHub URLs for proper functionality on both GitHub and PyPI
+- Fixed broken relative links to all documentation files in README for PyPI compatibility
+- Updated all relative links (basic_usage.py, benchmark.py, CONTRIBUTING.md, LICENSE, CHANGELOG.md) to absolute GitHub URLs
+- All documentation links now work properly on both GitHub and PyPI platforms
 
 ## [1.0.1] - 2025-09-03
 

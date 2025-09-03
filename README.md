@@ -74,7 +74,7 @@ if __name__ == "__main__":
 
 ## Basic Usage
 
-For a detailed, fully-commented example covering all major features (writing, reading, snapshots, and watching), please see [`basic_usage.py`](basic_usage.py).
+For a detailed, fully-commented example covering all major features (writing, reading, snapshots, and watching), please see [`basic_usage.py`](https://github.com/johnlogsdon/py-event-sourcing/blob/main/basic_usage.py).
 
 To run the example:
 ```bash
@@ -112,7 +112,7 @@ Final reconstructed state: Counter is 4.
 
 ## Benchmarks
 
-A benchmark script is included to measure write/read throughput and demonstrate the performance benefits of using snapshots. You can find the script at [`benchmark.py`](benchmark.py).
+A benchmark script is included to measure write/read throughput and demonstrate the performance benefits of using snapshots. You can find the script at [`benchmark.py`](https://github.com/johnlogsdon/py-event-sourcing/blob/main/benchmark.py).
 
 To run the benchmark:
 ```bash
@@ -158,7 +158,7 @@ uv run pytest
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+We welcome contributions! Please see our [Contributing Guide](https://github.com/johnlogsdon/py-event-sourcing/blob/main/CONTRIBUTING.md) for details on:
 
 - Setting up a development environment
 - Code style guidelines
@@ -167,8 +167,8 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/johnlogsdon/py-event-sourcing/blob/main/LICENSE) file for details.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for a list of changes and version history.
+See [CHANGELOG.md](https://github.com/johnlogsdon/py-event-sourcing/blob/main/CHANGELOG.md) for a list of changes and version history.
