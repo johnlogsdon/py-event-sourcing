@@ -1,7 +1,7 @@
 import pytest
 from pytest_asyncio import fixture
 import asyncio
-from pysource import CandidateEvent, sqlite_stream_factory, EventFilter, EqualsClause, InClause, LikeClause
+from py_event_sourcing import CandidateEvent, sqlite_stream_factory, EventFilter, EqualsClause, InClause, LikeClause
 import tempfile
 import os
 

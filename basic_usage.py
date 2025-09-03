@@ -3,7 +3,7 @@ import os
 import tempfile
 import json
 
-from pysource import (
+from py_event_sourcing import (
     sqlite_stream_factory,
     CandidateEvent,
     StoredEvent,

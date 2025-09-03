@@ -1,4 +1,9 @@
-# pysource - A minimal, `asyncio`-native event sourcing library
+# py-event-sourcing - A minimal, `asyncio`-native event sourcing library
+
+[![CI](https://github.com/yourusername/py-event-sourcing/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/py-event-sourcing/actions/workflows/ci.yml)
+[![PyPI version](https://badge.fury.io/py/py-event-sourcing.svg)](https://pypi.org/project/py-event-sourcing/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/py-event-sourcing)](https://pypi.org/project/py-event-sourcing/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 This library provides core components for building event-sourced systems in Python. It uses SQLite for persistence and offers a simple API for `write`, `read`, and `watch` operations on event streams.
 
@@ -150,3 +155,20 @@ The test suite uses `pytest`. To run all tests, use the following command:
 ```bash
 uv run pytest
 ```
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+
+- Setting up a development environment
+- Code style guidelines
+- Testing requirements
+- Pull request process
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a list of changes and version history.

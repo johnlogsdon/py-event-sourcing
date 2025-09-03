@@ -4,8 +4,8 @@ import tempfile
 import json
 import time
 
-from pysource import CandidateEvent, StoredEvent
-from pysource.adaptors.sqlite import sqlite_stream_factory
+from py_event_sourcing import CandidateEvent, StoredEvent
+from py_event_sourcing.adaptors.sqlite import sqlite_stream_factory
 
 
 class CounterState:

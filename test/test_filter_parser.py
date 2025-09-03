@@ -1,8 +1,8 @@
 import pytest
 from typing import List, Any, Tuple
 
-from pysource.models import EventFilter, EqualsClause, InClause, LikeClause
-from pysource.adaptors.sqlite.filter_parser import parse_event_filter_to_sql
+from py_event_sourcing.models import EventFilter, EqualsClause, InClause, LikeClause
+from py_event_sourcing.adaptors.sqlite.filter_parser import parse_event_filter_to_sql
 
 # -----------------------------------------------------------------------------
 # Unit Tests for the Parsing Logic

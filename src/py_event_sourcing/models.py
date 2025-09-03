@@ -3,7 +3,6 @@ This module defines the core data models for the event sourcing system using Pyd
 These models serve as the data transfer objects (DTOs) and ensure that all
 event and snapshot data is well-structured and validated.
 """
-import uuid
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Literal, Union

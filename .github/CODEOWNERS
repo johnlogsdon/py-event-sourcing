@@ -1,0 +1,6 @@
+# This file defines who owns and is responsible for different parts of the codebase
+# When a pull request changes files in these paths, the specified users will be
+# automatically requested for review
+
+# The owner/maintainer (you!) should review all changes
+@johnlogsdon

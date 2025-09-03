@@ -1,5 +1,5 @@
 from typing import List, Any, Tuple
-from pysource.models import EventFilter, EqualsClause, InClause, LikeClause
+from py_event_sourcing.models import EventFilter, EqualsClause, InClause, LikeClause
 
 
 def _parse_sql_target(field: str, params: list) -> str:

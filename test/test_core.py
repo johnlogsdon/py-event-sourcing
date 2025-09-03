@@ -8,7 +8,7 @@ import pydantic_core
 import pytest
 from pytest_asyncio import fixture
 
-from pysource import sqlite_stream_factory, CandidateEvent
+from py_event_sourcing import sqlite_stream_factory, CandidateEvent
 
 
 @fixture

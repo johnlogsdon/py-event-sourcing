@@ -1,17 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "pysource"
-version = "0.1.0"
+name = "py-event-sourcing"
+version = "1.0.0"
 description = "A minimal, `asyncio`-native event sourcing library"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+    {name = "John", email = "john@example.com"},  # Replace with your actual details
+]
+maintainers = [
+    {name = "John", email = "john@example.com"},  # Replace with your actual details
+]
+keywords = [
+    "event-sourcing",
+    "asyncio",
+    "sqlite",
+    "database",
+    "stream-processing",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
+]
 dependencies = [
     "pydantic>=2.11.7",
-    "aiosqlite",
+    "aiosqlite>=0.19.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/py-event-sourcing"  # Replace with your repo
+Documentation = "https://github.com/yourusername/py-event-sourcing#readme"
+Repository = "https://github.com/yourusername/py-event-sourcing.git"
+Issues = "https://github.com/yourusername/py-event-sourcing/issues"
+Changelog = "https://github.com/yourusername/py-event-sourcing/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-testpaths = ["test", "tests"]
+testpaths = ["test"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--disable-warnings",
+]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+lint = [
+    "flake8",
+    "black",
+    "isort",
+    "mypy",
+]

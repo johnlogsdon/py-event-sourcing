@@ -6,8 +6,8 @@ from datetime import datetime
 import asyncio
 from collections import defaultdict
 
-from pysource.models import StoredEvent
-from pysource.protocols import Notifier
+from py_event_sourcing.models import StoredEvent
+from py_event_sourcing.protocols import Notifier
 
 
 async def _fetch_new_events(conn: aiosqlite.Connection, last_id: int) -> List[StoredEvent]:

@@ -8,8 +8,8 @@ from datetime import datetime
 import asyncio
 import uuid
 
-from pysource.models import CandidateEvent, StoredEvent, Snapshot, EventFilter
-from pysource.protocols import StorageHandle
+from py_event_sourcing.models import CandidateEvent, StoredEvent, Snapshot, EventFilter
+from py_event_sourcing.protocols import StorageHandle
 from .filter_parser import parse_event_filter_to_sql
 
 
