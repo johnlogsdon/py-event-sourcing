@@ -8,8 +8,8 @@
 This library provides core components for building event-sourced systems in Python. It uses SQLite for persistence and offers a simple API for `write`, `read`, and `watch` operations on event streams.
 
 For a deeper dive into the concepts and design, please see:
-*   **[Concepts](docs/CONCEPTS.md)**: An introduction to the Event Sourcing pattern.
-*   **[Design](docs/DESIGN.md)**: An overview of the library's architecture and components.
+*   **[Concepts](https://github.com/johnlogsdon/py-event-sourcing/blob/main/docs/CONCEPTS.md)**: An introduction to the Event Sourcing pattern.
+*   **[Design](https://github.com/johnlogsdon/py-event-sourcing/blob/main/docs/DESIGN.md)**: An overview of the library's architecture and components.
 
 ## Key Features
 
