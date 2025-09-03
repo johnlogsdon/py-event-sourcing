@@ -12,7 +12,7 @@ Thank you for your interest in contributing to py-event-sourcing! This document 
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/py-event-sourcing.git
+   git clone https://github.com/johnlogsdon/py-event-sourcing.git
    cd py-event-sourcing
    ```
 

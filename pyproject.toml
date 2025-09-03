@@ -41,11 +41,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/py-event-sourcing"  # Replace with your repo
-Documentation = "https://github.com/yourusername/py-event-sourcing#readme"
-Repository = "https://github.com/yourusername/py-event-sourcing.git"
-Issues = "https://github.com/yourusername/py-event-sourcing/issues"
-Changelog = "https://github.com/yourusername/py-event-sourcing/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/johnlogsdon/py-event-sourcing"
+Documentation = "https://github.com/johnlogsdon/py-event-sourcing#readme"
+Repository = "https://github.com/johnlogsdon/py-event-sourcing.git"
+Issues = "https://github.com/johnlogsdon/py-event-sourcing/issues"
+Changelog = "https://github.com/johnlogsdon/py-event-sourcing/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
