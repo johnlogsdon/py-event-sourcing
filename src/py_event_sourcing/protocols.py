@@ -10,7 +10,7 @@ This is a key principle of the library's design.
 
 import asyncio
 from datetime import datetime
-from typing import Any, AsyncIterable, Dict, List, Protocol, Set, Union
+from typing import Any, AsyncGenerator, Dict, List, Protocol, Set, Union
 
 from .models import CandidateEvent, EventFilter, Snapshot, StoredEvent
 
@@ -66,7 +66,7 @@ class StorageHandle(Protocol):
 
     async def get_events(
         self, start_version: int = 0, event_filter: EventFilter | None = None
-    ) -> AsyncIterable[StoredEvent]:
+    ) -> AsyncGenerator[StoredEvent, None]:
         """
         Retrieves events from the storage starting from a given version.
 
@@ -233,7 +233,7 @@ class Stream(Protocol):
 
     async def read(
         self, from_version: int = 0, event_filter: EventFilter | None = None
-    ) -> AsyncIterable[StoredEvent]:
+    ) -> AsyncGenerator[StoredEvent, None]:
         """
         Returns an async generator that yields historical events from the stream.
 
@@ -249,7 +249,7 @@ class Stream(Protocol):
 
     async def watch(
         self, from_version: int | None = None
-    ) -> AsyncIterable[StoredEvent]:
+    ) -> AsyncGenerator[StoredEvent, None]:
         """
         Returns an async generator that yields historical events and then live events.
 

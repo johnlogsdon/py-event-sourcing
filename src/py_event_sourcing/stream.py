@@ -10,7 +10,7 @@ resource management explicit.
 
 import zlib
 from datetime import datetime, timezone
-from typing import Any, AsyncIterable, Dict, List, Union
+from typing import Any, AsyncGenerator, Dict, List, Union
 
 from .models import CandidateEvent, EventFilter, Snapshot, StoredEvent
 from .protocols import Notifier, StorageHandle, Stream
@@ -111,23 +111,23 @@ class StreamImpl(Stream):
                 return snapshot
         return None
 
-    async def read(
+    async def read(  # type: ignore[override]
         self, from_version: int = 0, event_filter: EventFilter | None = None
-    ) -> AsyncIterable[StoredEvent]:
-        async for event in self.storage_handle.get_events(
+    ) -> AsyncGenerator[StoredEvent, None]:
+        async for event in self.storage_handle.get_events(  # type: ignore[attr-defined]
             start_version=from_version, event_filter=event_filter
         ):
             yield event
 
-    async def watch(
+    async def watch(  # type: ignore[override]
         self, from_version: int | None = None
-    ) -> AsyncIterable[StoredEvent]:
+    ) -> AsyncGenerator[StoredEvent, None]:
         effective_from_version = self.version if from_version is None else from_version
         queue = await self.notifier.subscribe(self.stream_id)
         last_yielded_version = effective_from_version
 
         try:
-            async for event in self.storage_handle.get_events(
+            async for event in self.storage_handle.get_events(  # type: ignore[attr-defined]
                 start_version=effective_from_version
             ):
                 yield event

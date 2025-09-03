@@ -4,7 +4,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncIterable, AsyncIterator, List, Set
+from typing import AsyncGenerator, AsyncIterable, AsyncIterator, List, Set
 
 import aiosqlite
 import pydantic_core
@@ -300,9 +300,9 @@ class SQLiteStorageHandle(StorageHandle):
         # but the stream logic calls it beforehand for a pre-check.
         return await _find_existing_ids(self.write_conn, self.stream_id, event_ids)
 
-    async def get_events(
+    async def get_events(  # type: ignore[override]
         self, start_version: int = 0, event_filter: EventFilter | None = None
-    ) -> AsyncIterable[StoredEvent]:
+    ) -> AsyncGenerator[StoredEvent, None]:
         """Gets events using a read connection."""
         async with self._get_read_conn() as conn:
             async for event in _get_events(

@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from typing import AsyncIterable
+from typing import AsyncContextManager, AsyncIterator, Callable
 
 from py_event_sourcing.protocols import Stream
 from py_event_sourcing.stream import StreamImpl
@@ -15,7 +15,7 @@ async def sqlite_stream_factory(
     cache_size_kib: int = -16384,
     polling_interval: float = 0.2,
     pool_size: int = 10,
-) -> AsyncIterable[Stream]:
+) -> AsyncIterator[Callable[[str], AsyncContextManager[Stream]]]:
     """
     A factory for creating and managing streams that are backed by a SQLite database.
     This function is a Higher-Order Function that, when used as an async context
@@ -24,7 +24,7 @@ async def sqlite_stream_factory(
     resource_manager = SQLiteResourceManager()
 
     @asynccontextmanager
-    async def open_stream(stream_id: str) -> AsyncIterable[Stream]:
+    async def open_stream(stream_id: str) -> AsyncIterator[Stream]:
         if not db_path:
             raise ValueError("`db_path` must be provided in the configuration.")
 

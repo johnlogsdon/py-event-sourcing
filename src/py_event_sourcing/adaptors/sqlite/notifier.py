@@ -60,7 +60,7 @@ class SQLiteNotifier(Notifier):
     def __init__(self, conn: aiosqlite.Connection, polling_interval: float = 0.2):
         self._conn = conn
         self._polling_interval = polling_interval
-        self._watchers: Dict[str, List[asyncio.Queue]] = defaultdict(list)
+        self._watchers: Dict[str, List[asyncio.Queue[StoredEvent]]] = defaultdict(list)
         self._last_id = 0
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -121,14 +121,14 @@ class SQLiteNotifier(Notifier):
 
             await asyncio.sleep(self._polling_interval)
 
-    async def subscribe(self, stream_id: str) -> asyncio.Queue:
+    async def subscribe(self, stream_id: str) -> asyncio.Queue[StoredEvent]:
         """Allows a watcher to subscribe to a stream_id."""
         async with self._lock:
-            queue = asyncio.Queue()
+            queue: asyncio.Queue[StoredEvent] = asyncio.Queue()
             self._watchers[stream_id].append(queue)
             return queue
 
-    async def unsubscribe(self, stream_id: str, queue: asyncio.Queue):
+    async def unsubscribe(self, stream_id: str, queue: asyncio.Queue[StoredEvent]):
         """Removes a watcher's queue."""
         async with self._lock:
             if stream_id in self._watchers and queue in self._watchers[stream_id]:
