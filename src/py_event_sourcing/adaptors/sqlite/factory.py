@@ -1,7 +1,9 @@
-from typing import AsyncIterable
 from contextlib import asynccontextmanager
-from py_event_sourcing.stream import StreamImpl
+from typing import AsyncIterable
+
 from py_event_sourcing.protocols import Stream
+from py_event_sourcing.stream import StreamImpl
+
 from .handle import SQLiteStorageHandle
 from .resource_manager import SQLiteResourceManager
 

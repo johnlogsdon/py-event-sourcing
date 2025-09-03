@@ -8,7 +8,7 @@ import pydantic_core
 import pytest
 from pytest_asyncio import fixture
 
-from py_event_sourcing import sqlite_stream_factory, CandidateEvent
+from py_event_sourcing import CandidateEvent, sqlite_stream_factory
 
 
 @fixture
@@ -91,9 +91,7 @@ async def test_append_invalid_event(open_stream):
 async def test_append_invalid_data(open_stream):
     async with open_stream("test") as stream:
         with pytest.raises(pydantic_core.ValidationError):
-            await stream.write(
-                [CandidateEvent(type="Test", data=None, metadata={})]
-            )
+            await stream.write([CandidateEvent(type="Test", data=None, metadata={})])
 
 
 # Test 8
@@ -130,9 +128,7 @@ async def test_file_watch(open_stream):
     stream_name = "test_watch"
     async with open_stream(stream_name) as stream:
         # Write initial event to test replay
-        initial_event = CandidateEvent(
-            type="Initial", data=b"initial", metadata={}
-        )
+        initial_event = CandidateEvent(type="Initial", data=b"initial", metadata={})
         await stream.write([initial_event])
 
         count = 0
@@ -190,9 +186,7 @@ async def test_watch_from_present_default(open_stream):
     await asyncio.sleep(0.5)  # Give watcher time to start
 
     async with open_stream(stream_id) as writer_stream:
-        await writer_stream.write(
-            [CandidateEvent(type="v2", data=b"2")]
-        )
+        await writer_stream.write([CandidateEvent(type="v2", data=b"2")])
 
     await asyncio.wait_for(watch_task, timeout=5)
 
@@ -216,9 +210,7 @@ async def test_optimistic_concurrency_control(open_stream):
         async with open_stream(stream_id) as stream2:
             assert stream2.version == 1
             # Session 1 writes again, advancing the version
-            await stream1.write(
-                [CandidateEvent(type="B", data=b"2", metadata={})]
-            )
+            await stream1.write([CandidateEvent(type="B", data=b"2", metadata={})])
 
             # Session 2 tries to write with a stale version, which should fail
             with pytest.raises(ValueError, match="Concurrency conflict"):
@@ -304,7 +296,7 @@ async def test_metrics(open_stream):
         metrics = await stream.metrics()
         assert metrics["current_version"] == 1
         assert metrics["event_count"] == 1
-        
+
         stored_events = [e async for e in stream.read()]
         assert metrics["last_timestamp"] == stored_events[0].timestamp
 
@@ -317,7 +309,7 @@ async def test_metrics(open_stream):
         metrics = await stream.metrics()
         assert metrics["current_version"] == 2
         assert metrics["event_count"] == 2
-        
+
         stored_events = [e async for e in stream.read()]
         assert metrics["last_timestamp"] == stored_events[1].timestamp
 
@@ -326,9 +318,7 @@ async def test_metrics(open_stream):
 async def test_load_snapshot_when_none_exists(open_stream):
     """Tests that loading a snapshot returns None when no snapshot has been saved."""
     async with open_stream("no_snapshot_test") as stream:
-        await stream.write(
-            [CandidateEvent(type="A", data=b"1", metadata={})]
-        )
+        await stream.write([CandidateEvent(type="A", data=b"1", metadata={})])
         snapshot = await stream.load_snapshot()
         assert snapshot is None
 
@@ -338,12 +328,8 @@ async def test_snapshot_and_replay_with_watch(open_stream):
     stream_name = "test_snapshot_watch"
     async with open_stream(stream_name) as stream:
         # Write some events
-        event1 = CandidateEvent(
-            type="Test1", data=b"data1", metadata={}
-        )
-        event2 = CandidateEvent(
-            type="Test2", data=b"data2", metadata={}
-        )
+        event1 = CandidateEvent(type="Test1", data=b"data1", metadata={})
+        event2 = CandidateEvent(type="Test2", data=b"data2", metadata={})
         await stream.write([event1, event2])
 
         # Save a snapshot
@@ -377,14 +363,10 @@ async def test_snapshot_and_replay_with_watch(open_stream):
 
             # Write events after snapshot to test replay and live watch
             async with open_stream(stream_name) as stream2:
-                event3 = CandidateEvent(
-                    type="Test3", data=b"data3", metadata={}
-                )
+                event3 = CandidateEvent(type="Test3", data=b"data3", metadata={})
                 await stream2.write([event3])  # This will be replayed
                 await asyncio.sleep(0.3)  # let it be processed
-                event4 = CandidateEvent(
-                    type="Test4", data=b"data4", metadata={}
-                )
+                event4 = CandidateEvent(type="Test4", data=b"data4", metadata={})
                 await stream2.write([event4])  # This will be live
 
             await asyncio.wait_for(watch_task, timeout=5.0)
@@ -510,7 +492,9 @@ async def test_high_concurrency_scenario(db_path: str):
 async def test_write_to_all_stream_is_disallowed(open_stream):
     """Tests that attempting to write to the '@all' stream raises an error."""
     async with open_stream("@all") as stream:
-        with pytest.raises(ValueError, match="Writing to the '@all' stream is not permitted."):
+        with pytest.raises(
+            ValueError, match="Writing to the '@all' stream is not permitted."
+        ):
             await stream.write([CandidateEvent(type="test", data=b"")])
 
 
@@ -588,11 +572,11 @@ async def test_snapshot_all_stream(open_stream):
     """Tests that snapshotting the '@all' stream works correctly."""
     # Write some events to different streams
     async with open_stream("stream1") as s1:
-        await s1.write([CandidateEvent(type="s1-e1", data=b"1")]) # seq 1
+        await s1.write([CandidateEvent(type="s1-e1", data=b"1")])  # seq 1
     async with open_stream("stream2") as s2:
-        await s2.write([CandidateEvent(type="s2-e1", data=b"2")]) # seq 2
+        await s2.write([CandidateEvent(type="s2-e1", data=b"2")])  # seq 2
     async with open_stream("stream1") as s1:
-        await s1.write([CandidateEvent(type="s1-e2", data=b"3")]) # seq 3
+        await s1.write([CandidateEvent(type="s1-e2", data=b"3")])  # seq 3
 
     # Build a projection from the @all stream
     all_events_state = []
@@ -601,26 +585,26 @@ async def test_snapshot_all_stream(open_stream):
         async for event in s_all.read():
             all_events_state.append(event.type)
             last_sequence_id = event.sequence_id
-        
+
         # Snapshot the projection state. The version is the last sequence_id.
         await s_all.snapshot(
-            str(all_events_state).encode(), 
-            version=last_sequence_id, 
-            projection_name="all_events_proj"
+            str(all_events_state).encode(),
+            version=last_sequence_id,
+            projection_name="all_events_proj",
         )
 
     # Write another event
     async with open_stream("stream2") as s2:
-        await s2.write([CandidateEvent(type="s2-e2", data=b"4")]) # seq 4
+        await s2.write([CandidateEvent(type="s2-e2", data=b"4")])  # seq 4
 
     # Restore from snapshot and continue
     async with open_stream("@all") as s_all:
         snapshot = await s_all.load_snapshot(projection_name="all_events_proj")
         assert snapshot is not None
         assert snapshot.version == 3
-        
+
         restored_state = eval(snapshot.state.decode())
-        
+
         # Read from the snapshot's version (which is the sequence id)
         async for event in s_all.read(from_version=snapshot.version):
             restored_state.append(event.type)

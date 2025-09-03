@@ -1,9 +1,19 @@
+import asyncio
+import os
+import tempfile
+
 import pytest
 from pytest_asyncio import fixture
-import asyncio
-from py_event_sourcing import CandidateEvent, sqlite_stream_factory, EventFilter, EqualsClause, InClause, LikeClause
-import tempfile
-import os
+
+from py_event_sourcing import (
+    CandidateEvent,
+    EqualsClause,
+    EventFilter,
+    InClause,
+    LikeClause,
+    sqlite_stream_factory,
+)
+
 
 @fixture
 async def open_stream():
@@ -55,14 +65,10 @@ async def test_versioning(open_stream):
     stream_id = "test_stream"
     async with open_stream(stream_id) as s:
         assert s.version == 0
-        await s.write(
-            [CandidateEvent(type="test", data=b"")], expected_version=0
-        )
+        await s.write([CandidateEvent(type="test", data=b"")], expected_version=0)
         assert s.version == 1
 
-        await s.write(
-            [CandidateEvent(type="test", data=b"")], expected_version=1
-        )
+        await s.write([CandidateEvent(type="test", data=b"")], expected_version=1)
         assert s.version == 2
 
         read_events = [e async for e in s.read()]
@@ -108,11 +114,7 @@ async def test_concurrency_control(open_stream):
             # s1 tries to write with a stale version
             with pytest.raises(ValueError, match="Concurrency conflict"):
                 await s1.write(
-                    [
-                        CandidateEvent(
-                            type="write-by-s1", data=b""
-                        )
-                    ],
+                    [CandidateEvent(type="write-by-s1", data=b"")],
                     expected_version=1,
                 )
 
@@ -121,9 +123,7 @@ async def test_concurrency_control(open_stream):
 async def test_snapshots(open_stream):
     stream_id = "test_snapshots"
     async with open_stream(stream_id) as s:
-        await s.write(
-            [CandidateEvent(type="event1", data=b"")] * 10
-        )
+        await s.write([CandidateEvent(type="event1", data=b"")] * 10)
         assert s.version == 10
         snapshot_data = b"snapshot_state"
         await s.snapshot(snapshot_data)
@@ -143,9 +143,7 @@ async def test_notifier_live_event(open_stream):
         # Give the watcher a moment to subscribe
         await asyncio.sleep(0.01)
 
-        await s.write(
-            [CandidateEvent(type="live-event", data=b"live-data")]
-        )
+        await s.write([CandidateEvent(type="live-event", data=b"live-data")])
 
         # The watcher should receive the event
         watched_event = await asyncio.wait_for(watch_task, timeout=1)
@@ -159,9 +157,7 @@ async def test_notifier_replay(open_stream):
     stream_id = "test_notifier_replay"
     async with open_stream(stream_id) as s:
         # Write an event *before* watching
-        await s.write(
-            [CandidateEvent(type="replay-event", data=b"replay-data")]
-        )
+        await s.write([CandidateEvent(type="replay-event", data=b"replay-data")])
         assert s.version == 1
 
         # Now, start watching. It should first replay the existing event.
@@ -171,9 +167,7 @@ async def test_notifier_replay(open_stream):
         # Now, test a live event
         watch_task = asyncio.create_task(anext(s.watch(from_version=s.version)))
         await asyncio.sleep(0.01)
-        await s.write(
-            [CandidateEvent(type="live-event", data=b"live-data-2")]
-        )
+        await s.write([CandidateEvent(type="live-event", data=b"live-data-2")])
         live_event = await asyncio.wait_for(watch_task, timeout=1)
 
         assert live_event.type == "live-event"
@@ -219,15 +213,23 @@ async def test_end_to_end_filtering(open_stream):
     # Customer A events
     async with open_stream("customer-1") as s:
         await s.write(
-            CandidateEvent(type="order_placed", data=b"", metadata={"region": "EMEA", "value": 100})
+            CandidateEvent(
+                type="order_placed", data=b"", metadata={"region": "EMEA", "value": 100}
+            )
         )
         await s.write(
-            CandidateEvent(type="order_shipped", data=b"", metadata={"region": "EMEA", "value": 100})
+            CandidateEvent(
+                type="order_shipped",
+                data=b"",
+                metadata={"region": "EMEA", "value": 100},
+            )
         )
     # Customer B events
     async with open_stream("customer-2") as s:
         await s.write(
-            CandidateEvent(type="order_placed", data=b"", metadata={"region": "APAC", "value": 250})
+            CandidateEvent(
+                type="order_placed", data=b"", metadata={"region": "APAC", "value": 250}
+            )
         )
     # Internal system events (should be filtered out)
     async with open_stream("system-alerts") as s:
@@ -238,12 +240,14 @@ async def test_end_to_end_filtering(open_stream):
     # 2. Act: Read from the @all stream with a specific filter
     async with open_stream("@all") as s:
         # We want all 'order_placed' events from 'customer' streams in the 'EMEA' region.
-        event_filter = EventFilter(clauses=[
-            LikeClause(field="stream_id", value="customer-%"),
-            EqualsClause(field="event_type", value="order_placed"),
-            EqualsClause(field="metadata.region", value="EMEA"),
-        ])
-        
+        event_filter = EventFilter(
+            clauses=[
+                LikeClause(field="stream_id", value="customer-%"),
+                EqualsClause(field="event_type", value="order_placed"),
+                EqualsClause(field="metadata.region", value="EMEA"),
+            ]
+        )
+
         filtered_events = [e async for e in s.read(event_filter=event_filter)]
 
     # 3. Assert: Check that only the correct event was returned

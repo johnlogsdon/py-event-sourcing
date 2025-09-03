@@ -1,17 +1,18 @@
-from typing import AsyncIterable, AsyncIterator, List, Set
-from contextlib import asynccontextmanager
-import aiosqlite
+import asyncio
 import json
 import logging
-import pydantic_core
-from datetime import datetime
-import asyncio
 import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import AsyncIterable, AsyncIterator, List, Set
 
-from py_event_sourcing.models import CandidateEvent, StoredEvent, Snapshot, EventFilter
+import aiosqlite
+import pydantic_core
+
+from py_event_sourcing.models import CandidateEvent, EventFilter, Snapshot, StoredEvent
 from py_event_sourcing.protocols import StorageHandle
-from .filter_parser import parse_event_filter_to_sql
 
+from .filter_parser import parse_event_filter_to_sql
 
 # -----------------------------------------------------------------------------
 # Stateless Query Functions
@@ -20,6 +21,7 @@ from .filter_parser import parse_event_filter_to_sql
 # necessary parameters, execute a single piece of DB logic, and return a
 # result. They are the building blocks for the stateful handle.
 # -----------------------------------------------------------------------------
+
 
 async def _get_stream_version(conn: aiosqlite.Connection, stream_id: str) -> int:
     """Gets the latest version number for a given stream."""
@@ -34,7 +36,10 @@ async def _get_stream_version(conn: aiosqlite.Connection, stream_id: str) -> int
 
 
 async def _sync_events(
-    conn: aiosqlite.Connection, stream_id: str, new_events: List[CandidateEvent], expected_version: int
+    conn: aiosqlite.Connection,
+    stream_id: str,
+    new_events: List[CandidateEvent],
+    expected_version: int,
 ) -> int:
     """
     Persists new events to the database in a transaction, atomically checking
@@ -58,10 +63,16 @@ async def _sync_events(
 
         # 1. Get current version and check for idempotency inside the transaction
         current_version = await _get_stream_version(conn, stream_id)
-        idempotency_keys_to_check = [e.idempotency_key for e in new_events if e.idempotency_key]
+        idempotency_keys_to_check = [
+            e.idempotency_key for e in new_events if e.idempotency_key
+        ]
         if idempotency_keys_to_check:
-            existing_ids = await _find_existing_ids(conn, stream_id, idempotency_keys_to_check)
-            new_events = [e for e in new_events if e.idempotency_key not in existing_ids]
+            existing_ids = await _find_existing_ids(
+                conn, stream_id, idempotency_keys_to_check
+            )
+            new_events = [
+                e for e in new_events if e.idempotency_key not in existing_ids
+            ]
 
         # 2. Check for concurrency conflict
         if expected_version != -1 and current_version != expected_version:
@@ -100,7 +111,10 @@ async def _sync_events(
         logging.error(f"Failed to sync events to SQLite: {e}")
         raise
 
-async def _find_existing_ids(conn: aiosqlite.Connection, stream_id: str, event_ids: List[str]) -> Set[str]:
+
+async def _find_existing_ids(
+    conn: aiosqlite.Connection, stream_id: str, event_ids: List[str]
+) -> Set[str]:
     """Given a list of event IDs, query the DB and return the set that already exist."""
     if not event_ids:
         return set()
@@ -121,9 +135,9 @@ async def _get_events(
     event_filter: EventFilter | None = None,
 ) -> AsyncIterable[StoredEvent]:
     """An async generator to stream events from the database for a given stream_id."""
-    
+
     params: list = []
-    
+
     if stream_id == "@all":
         base_query = "SELECT id, stream_id, idempotency_key, event_type, timestamp, metadata, data, version, id FROM events"
         conditions = ["id > ?"]
@@ -139,16 +153,26 @@ async def _get_events(
             # The generated clause includes "WHERE", so we remove it and join with "AND"
             conditions.append(filter_clause.replace("WHERE ", ""))
             params.extend(filter_params)
-            
+
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    
+
     order_by = "ORDER BY id" if stream_id == "@all" else "ORDER BY version"
 
     final_query = f"{base_query} {where_clause} {order_by}"
 
     async with conn.execute(final_query, tuple(params)) as cursor:
         async for row in cursor:
-            sequence_id, stream_id_db, idempotency_key, event_type, timestamp_str, metadata_json, data_blob, version, event_id = row
+            (
+                sequence_id,
+                stream_id_db,
+                idempotency_key,
+                event_type,
+                timestamp_str,
+                metadata_json,
+                data_blob,
+                version,
+                event_id,
+            ) = row
             try:
                 yield StoredEvent(
                     id=idempotency_key or str(event_id),
@@ -160,11 +184,20 @@ async def _get_events(
                     data=data_blob,
                     version=version,
                 )
-            except (json.JSONDecodeError, pydantic_core.ValidationError, KeyError, ValueError) as e:
-                logging.warning(f"Skipping invalid event row during replay for stream {stream_id}: {e}")
+            except (
+                json.JSONDecodeError,
+                pydantic_core.ValidationError,
+                KeyError,
+                ValueError,
+            ) as e:
+                logging.warning(
+                    f"Skipping invalid event row during replay for stream {stream_id}: {e}"
+                )
 
 
-async def _get_last_timestamp(conn: aiosqlite.Connection, stream_id: str) -> datetime | None:
+async def _get_last_timestamp(
+    conn: aiosqlite.Connection, stream_id: str
+) -> datetime | None:
     """Returns the timestamp of the last event in the stream."""
     async with conn.execute(
         "SELECT timestamp FROM events WHERE stream_id = ? ORDER BY id DESC LIMIT 1",
@@ -178,12 +211,20 @@ async def _save_snapshot(conn: aiosqlite.Connection, snapshot: Snapshot):
     """Saves a snapshot to the database."""
     await conn.execute(
         "INSERT OR REPLACE INTO snapshots (stream_id, projection_name, version, state, timestamp) VALUES (?, ?, ?, ?, ?)",
-        (snapshot.stream_id, snapshot.projection_name, snapshot.version, snapshot.state, snapshot.timestamp.isoformat()),
+        (
+            snapshot.stream_id,
+            snapshot.projection_name,
+            snapshot.version,
+            snapshot.state,
+            snapshot.timestamp.isoformat(),
+        ),
     )
     await conn.commit()
 
 
-async def _load_latest_snapshot(conn: aiosqlite.Connection, stream_id: str, projection_name: str) -> Snapshot | None:
+async def _load_latest_snapshot(
+    conn: aiosqlite.Connection, stream_id: str, projection_name: str
+) -> Snapshot | None:
     """Loads the latest snapshot for a given stream."""
     async with conn.execute(
         "SELECT stream_id, projection_name, version, state, timestamp FROM snapshots WHERE stream_id = ? AND projection_name = ? ORDER BY version DESC LIMIT 1",
@@ -201,6 +242,7 @@ async def _load_latest_snapshot(conn: aiosqlite.Connection, stream_id: str, proj
             )
         return None
 
+
 # -----------------------------------------------------------------------------
 # Stateful Storage Handle
 # -----------------------------------------------------------------------------
@@ -208,6 +250,7 @@ async def _load_latest_snapshot(conn: aiosqlite.Connection, stream_id: str, proj
 # aspects of a stream: its version, concurrency locks, and connection pools.
 # It calls the stateless query functions above to do the actual DB work.
 # -----------------------------------------------------------------------------
+
 
 class SQLiteStorageHandle(StorageHandle):
     """
@@ -242,7 +285,9 @@ class SQLiteStorageHandle(StorageHandle):
         finally:
             await self.read_pool.put(conn)
 
-    async def sync(self, new_events: List[CandidateEvent], expected_version: int) -> int:
+    async def sync(
+        self, new_events: List[CandidateEvent], expected_version: int
+    ) -> int:
         """Persists new events using the dedicated write connection."""
         async with self.write_lock:
             return await _sync_events(
@@ -282,7 +327,7 @@ class SQLiteStorageHandle(StorageHandle):
         """Loads a snapshot using a read connection."""
         async with self._get_read_conn() as conn:
             return await _load_latest_snapshot(conn, stream_id, projection_name)
-    
+
     async def close(self):
         # Connections are managed by the factory, so the handle should not close them.
         pass

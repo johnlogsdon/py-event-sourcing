@@ -1,12 +1,14 @@
-import aiosqlite
 import asyncio
 from typing import Dict, NamedTuple
+
+import aiosqlite
 
 from .notifier import SQLiteNotifier
 
 
 class DBResources(NamedTuple):
     """A container for all resources related to a single database file."""
+
     write_conn: aiosqlite.Connection
     write_lock: asyncio.Lock
     read_pool: asyncio.Queue
@@ -38,7 +40,7 @@ class SQLiteResourceManager:
         """
         is_memory_db = db_path == ":memory:"
         db_key = ":memory:" if is_memory_db else db_path
-        
+
         if db_key in self._resources:
             return self._resources[db_key]
 
@@ -52,7 +54,9 @@ class SQLiteResourceManager:
                 return self._resources[db_key]
 
             db_connect_string = (
-                "file:memdb_shared?mode=memory&cache=shared" if is_memory_db else db_path
+                "file:memdb_shared?mode=memory&cache=shared"
+                if is_memory_db
+                else db_path
             )
 
             # Create Write Connection and initialize schema first
@@ -118,7 +122,9 @@ class SQLiteResourceManager:
         )
         await conn.commit()
 
-    async def _configure_connection(self, conn: aiosqlite.Connection, cache_size_kib: int):
+    async def _configure_connection(
+        self, conn: aiosqlite.Connection, cache_size_kib: int
+    ):
         """Applies standard PRAGMA settings to a connection."""
         await conn.execute("PRAGMA journal_mode=WAL;")
         await conn.execute("PRAGMA synchronous = NORMAL;")
@@ -140,9 +146,8 @@ class SQLiteResourceManager:
             while not res.read_pool.empty():
                 conn = await res.read_pool.get()
                 connection_tasks.append(conn.close())
-        
-        await asyncio.gather(*connection_tasks, return_exceptions=True)
 
+        await asyncio.gather(*connection_tasks, return_exceptions=True)
 
     def __del__(self):
         # Ensure cleanup happens if the object is garbage collected,
@@ -151,5 +156,5 @@ class SQLiteResourceManager:
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(self.close_all())
-            except RuntimeError: # No running loop
+            except RuntimeError:  # No running loop
                 asyncio.run(self.close_all())

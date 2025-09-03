@@ -7,11 +7,13 @@ extensible, allowing for future support of different databases (e.g., PostgreSQL
 or notification systems (e.g., Redis Pub/Sub) without changing the `Stream` class.
 This is a key principle of the library's design.
 """
-from typing import Protocol, AsyncIterable, List, Set, Dict, Any, Union
+
 import asyncio
 from datetime import datetime
+from typing import Any, AsyncIterable, Dict, List, Protocol, Set, Union
 
-from .models import CandidateEvent, StoredEvent, Snapshot, EventFilter
+from .models import CandidateEvent, EventFilter, Snapshot, StoredEvent
+
 
 class StorageHandle(Protocol):
     """
@@ -25,7 +27,9 @@ class StorageHandle(Protocol):
         """
         ...
 
-    async def sync(self, new_events: List[CandidateEvent], expected_version: int) -> int:
+    async def sync(
+        self, new_events: List[CandidateEvent], expected_version: int
+    ) -> int:
         """
         Atomically persists a list of new events.
 
@@ -90,13 +94,15 @@ class StorageHandle(Protocol):
 
         Args:
             snapshot: The `Snapshot` object to save.
-        
+
         Returns:
             The version number of the saved snapshot.
         """
         ...
 
-    async def load_latest_snapshot(self, stream_id: str, projection_name: str = "default") -> Snapshot | None:
+    async def load_latest_snapshot(
+        self, stream_id: str, projection_name: str = "default"
+    ) -> Snapshot | None:
         """
         Loads the most recent snapshot for a given stream.
 
@@ -115,16 +121,19 @@ class StorageHandle(Protocol):
         """
         ...
 
+
 class Notifier(Protocol):
     """
     Defines the contract for notifying watchers of new events.
     This allows for different notification strategies (e.g., polling, pub/sub).
     """
+
     async def start(self):
         """
         Starts the notifier, e.g., by beginning a polling loop.
         """
         ...
+
     async def stop(self):
         """
         Stops the notifier and cleans up its resources.
@@ -153,16 +162,22 @@ class Notifier(Protocol):
         """
         ...
 
+
 class Stream(Protocol):
     """
     Defines the public interface for an event stream.
     This allows the factory to return a stream object without coupling the user
     to a specific implementation class.
     """
+
     version: int
     stream_id: str
 
-    async def write(self, events: Union[CandidateEvent, List[CandidateEvent]], expected_version: int = -1) -> int:
+    async def write(
+        self,
+        events: Union[CandidateEvent, List[CandidateEvent]],
+        expected_version: int = -1,
+    ) -> int:
         """
         Appends a list of events to the stream atomically.
 
@@ -184,7 +199,9 @@ class Stream(Protocol):
         """
         ...
 
-    async def snapshot(self, state: bytes, version: int | None = None, projection_name: str = "default"):
+    async def snapshot(
+        self, state: bytes, version: int | None = None, projection_name: str = "default"
+    ):
         """
         Saves a snapshot of the stream's state at the current version.
 
@@ -230,7 +247,9 @@ class Stream(Protocol):
         """
         ...
 
-    async def watch(self, from_version: int | None = None) -> AsyncIterable[StoredEvent]:
+    async def watch(
+        self, from_version: int | None = None
+    ) -> AsyncIterable[StoredEvent]:
         """
         Returns an async generator that yields historical events and then live events.
 

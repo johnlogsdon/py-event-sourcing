@@ -7,18 +7,13 @@ for a given configuration and returns an `open_stream` function that is bound
 to those resources. This functional approach avoids global singletons and makes
 resource management explicit.
 """
-import zlib
-from typing import (
-    Any,
-    AsyncIterable,
-    Dict,
-    List,
-    Union,
-)
-from datetime import datetime, timezone
 
-from .models import CandidateEvent, StoredEvent, Snapshot, EventFilter
-from .protocols import Stream, StorageHandle, Notifier
+import zlib
+from datetime import datetime, timezone
+from typing import Any, AsyncIterable, Dict, List, Union
+
+from .models import CandidateEvent, EventFilter, Snapshot, StoredEvent
+from .protocols import Notifier, StorageHandle, Stream
 
 
 class StreamImpl(Stream):
@@ -35,13 +30,17 @@ class StreamImpl(Stream):
         self.stream_id = stream_id
         self.storage_handle = storage_handle
         self.notifier = notifier
-        self.version = -1 # Uninitialized
+        self.version = -1  # Uninitialized
 
     async def _async_init(self):
         """Initializes the stream by fetching its current version."""
         self.version = await self.storage_handle.get_version()
 
-    async def write(self, events: Union[CandidateEvent, List[CandidateEvent]], expected_version: int = -1) -> int:
+    async def write(
+        self,
+        events: Union[CandidateEvent, List[CandidateEvent]],
+        expected_version: int = -1,
+    ) -> int:
         """Appends one or more events to the stream."""
         if self.stream_id == "@all":
             raise ValueError("Writing to the '@all' stream is not permitted.")
@@ -57,35 +56,45 @@ class StreamImpl(Stream):
 
         # Optimistic concurrency check before sending to storage
         if expected_version != -1 and self.version != expected_version:
-            raise ValueError(f"Concurrency conflict: expected version {expected_version}, but stream is at {self.version}")
+            raise ValueError(
+                f"Concurrency conflict: expected version {expected_version}, but stream is at {self.version}"
+            )
 
         # Idempotency pre-check
-        idempotency_keys_to_check = [e.idempotency_key for e in events if e.idempotency_key]
+        idempotency_keys_to_check = [
+            e.idempotency_key for e in events if e.idempotency_key
+        ]
         if idempotency_keys_to_check:
-            existing_ids = await self.storage_handle.find_existing_ids(idempotency_keys_to_check)
+            existing_ids = await self.storage_handle.find_existing_ids(
+                idempotency_keys_to_check
+            )
             events = [e for e in events if e.idempotency_key not in existing_ids]
 
         if not events:
             return self.version
-            
+
         self.version = await self.storage_handle.sync(events, expected_version)
         return self.version
 
-    async def snapshot(self, state: bytes, version: int | None = None, projection_name: str = "default"):
+    async def snapshot(
+        self, state: bytes, version: int | None = None, projection_name: str = "default"
+    ):
         """Saves a snapshot of the stream's state."""
         snapshot_version = version if version is not None else self.version
-        
+
         # For the @all stream, the version is the global sequence ID of the last event processed.
         # Ensure the user provides it explicitly.
         if self.stream_id == "@all" and version is None:
-            raise ValueError("A version (representing the global sequence ID) must be provided for @all stream snapshots.")
+            raise ValueError(
+                "A version (representing the global sequence ID) must be provided for @all stream snapshots."
+            )
 
         snapshot = Snapshot(
             stream_id=self.stream_id,
             projection_name=projection_name,
             version=snapshot_version,
             state=state,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
         self.version = await self.storage_handle.save_snapshot(snapshot)
 
@@ -110,7 +119,9 @@ class StreamImpl(Stream):
         ):
             yield event
 
-    async def watch(self, from_version: int | None = None) -> AsyncIterable[StoredEvent]:
+    async def watch(
+        self, from_version: int | None = None
+    ) -> AsyncIterable[StoredEvent]:
         effective_from_version = self.version if from_version is None else from_version
         queue = await self.notifier.subscribe(self.stream_id)
         last_yielded_version = effective_from_version
@@ -120,18 +131,24 @@ class StreamImpl(Stream):
                 start_version=effective_from_version
             ):
                 yield event
-                last_yielded_version = event.sequence_id if self.stream_id == "@all" else event.version
+                last_yielded_version = (
+                    event.sequence_id if self.stream_id == "@all" else event.version
+                )
 
             while not queue.empty():
                 event = queue.get_nowait()
-                current_event_version = event.sequence_id if self.stream_id == "@all" else event.version
+                current_event_version = (
+                    event.sequence_id if self.stream_id == "@all" else event.version
+                )
                 if current_event_version > last_yielded_version:
                     yield event
                     last_yielded_version = current_event_version
 
             while True:
                 event = await queue.get()
-                current_event_version = event.sequence_id if self.stream_id == "@all" else event.version
+                current_event_version = (
+                    event.sequence_id if self.stream_id == "@all" else event.version
+                )
                 if current_event_version > last_yielded_version:
                     yield event
                     last_yielded_version = current_event_version

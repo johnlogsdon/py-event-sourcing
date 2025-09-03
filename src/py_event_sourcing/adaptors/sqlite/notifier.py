@@ -1,16 +1,19 @@
-from typing import Dict, List
-import aiosqlite
+import asyncio
 import json
 import logging
-from datetime import datetime
-import asyncio
 from collections import defaultdict
+from datetime import datetime
+from typing import Dict, List
+
+import aiosqlite
 
 from py_event_sourcing.models import StoredEvent
 from py_event_sourcing.protocols import Notifier
 
 
-async def _fetch_new_events(conn: aiosqlite.Connection, last_id: int) -> List[StoredEvent]:
+async def _fetch_new_events(
+    conn: aiosqlite.Connection, last_id: int
+) -> List[StoredEvent]:
     """
     A simple, stateless function to query for all new events after a given ID.
     """
@@ -43,7 +46,9 @@ async def _fetch_new_events(conn: aiosqlite.Connection, last_id: int) -> List[St
                         )
                     )
                 except Exception as e:
-                    logging.warning(f"Notifier skipping malformed event row with id {_id}: {e}")
+                    logging.warning(
+                        f"Notifier skipping malformed event row with id {_id}: {e}"
+                    )
     except aiosqlite.OperationalError as e:
         logging.error(f"Database error during polling: {e}")
     return events
@@ -93,27 +98,27 @@ class SQLiteNotifier(Notifier):
                 # to prevent race conditions that lead to deadlocks.
                 async with self._lock:
                     new_events = await _fetch_new_events(self._conn, self._last_id)
-                    
+
                     if not new_events:
                         continue
-                    
+
                     for event in new_events:
                         # Notify watchers for the specific stream
                         if event.stream_id in self._watchers:
                             for queue in self._watchers[event.stream_id]:
                                 await queue.put(event)
-                        
+
                         # Also notify @all watchers
                         if "@all" in self._watchers:
                             for queue in self._watchers["@all"]:
                                 await queue.put(event)
-                    
+
                     # Update the last seen ID only after successfully processing the batch
                     self._last_id = new_events[-1].sequence_id
 
             except Exception as e:
                 logging.error(f"Notifier poll loop error: {e}")
-            
+
             await asyncio.sleep(self._polling_interval)
 
     async def subscribe(self, stream_id: str) -> asyncio.Queue:
@@ -130,4 +135,3 @@ class SQLiteNotifier(Notifier):
                 self._watchers[stream_id].remove(queue)
                 if not self._watchers[stream_id]:
                     del self._watchers[stream_id]
-
