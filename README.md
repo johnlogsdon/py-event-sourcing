@@ -45,7 +45,7 @@ Here’s a quick example of writing to and reading from a stream.
 import asyncio
 import os
 import tempfile
-from pysource import sqlite_stream_factory, CandidateEvent
+from py_event_sourcing import sqlite_stream_factory, CandidateEvent
 
 async def main():
     # Use a temporary file for the database to keep the example self-contained.
